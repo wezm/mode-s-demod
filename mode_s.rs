@@ -1,5 +1,13 @@
 // ===================== Mode S detection and decoding  ===================
+use crate::modes;
+use std::cmp::Ordering;
 use std::os::raw::{c_int, c_uchar, c_uint};
+use std::ptr;
+
+extern "C" {
+    #[no_mangle]
+    static mut Modes: modes;
+}
 
 const MODES_LONG_MSG_BYTES: c_int = 14;
 const MODES_SHORT_MSG_BYTES: c_int = 7;
@@ -39,15 +47,42 @@ const MODES_CHECKSUM_TABLE: [u32; 112] = [
     0x000000, 0x000000, 0x000000, 0x000000,
 ];
 
+//
+//=========================================================================
+//
+// Code for introducing a less CPU-intensive method of correcting
+// single bit errors.
+//
+// Makes use of the fact that the crc checksum is linear with respect to
+// the bitwise xor operation, i.e.
+//      crc(m^e) = (crc(m)^crc(e)
+// where m and e are the message resp. error bit vectors.
+//
+// Call crc(e) the syndrome.
+//
+// The code below works by precomputing a table of (crc(e), e) for all
+// possible error vectors e (here only single bit and double bit errors),
+// search for the syndrome in the table, and correct the then known error.
+// The error vector e is represented by one or two bit positions that are
+// changed. If a second bit position is not used, it is -1.
+//
+// Run-time is binary search in a sorted table, plus some constant overhead,
+// instead of running through all possible bit positions (resp. pairs of
+// bit positions).
+//
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub struct errorinfo {
+    pub syndrome: u32,
+    pub bits: c_int,
+    pub pos: [c_int; 2],
+}
+
 // TODO: Change input to have a known length so we can get rid of pointer derefs and unsafe
 #[no_mangle]
 pub unsafe extern "C" fn modesChecksum(mut msg: *mut c_uchar, mut bits: c_int) -> u32 {
     let mut crc: u32 = 0;
-    let mut offset = if bits == 112 {
-        0
-    } else {
-        112 - 56
-    };
+    let mut offset = if bits == 112 { 0 } else { 112 - 56 };
     let mut the_byte: u8 = *msg;
     let mut j: c_int = 0;
 
@@ -74,6 +109,11 @@ pub unsafe extern "C" fn modesChecksum(mut msg: *mut c_uchar, mut bits: c_int) -
     return (crc ^ rem) & 0xffffff as c_int as c_uint; // 24 bit checksum syndrome.
 }
 
+// Given the Downlink Format (DF) of the message, return the message length in bits.
+//
+// All known DF's 16 or greater are long. All known DF's 15 or less are short.
+// There are lots of unused codes in both category, so we can assume ICAO will stick to
+// these rules, meaning that the most significant bit of the DF indicates the length.
 #[no_mangle]
 pub extern "C" fn modesMessageLenByType(type_: c_int) -> c_int {
     if type_ & 0x10 == 0x10 {
@@ -81,4 +121,128 @@ pub extern "C" fn modesMessageLenByType(type_: c_int) -> c_int {
     } else {
         MODES_SHORT_MSG_BITS
     }
+}
+
+// Compute the table of all syndromes for 1-bit and 2-bit error vectors
+#[no_mangle]
+pub unsafe extern "C" fn modesInitErrorInfoImpl(
+    table_ptr: *mut errorinfo,
+    table_len: c_int,
+    nfix_crc: c_int,
+) {
+    let bitErrorTable = &mut *ptr::slice_from_raw_parts_mut(table_ptr, table_len as usize);
+    let mut msg: [c_uchar; 14] = [0; MODES_LONG_MSG_BYTES as usize];
+    let mut j: c_int;
+    let mut n: c_int = 0;
+    let mut crc: u32;
+
+    // Add all possible single and double bit errors
+    // don't include errors in first 5 bits (DF type)
+    let mut i = 5 as c_int;
+    while i < MODES_LONG_MSG_BITS {
+        let bytepos0: c_int = i >> 3 as c_int;
+        let mask0: c_int = (1 as c_int) << 7 as c_int - (i & 7 as c_int);
+        // revert error0
+        msg[bytepos0 as usize] = (msg[bytepos0 as usize] as c_int ^ mask0) as c_uchar; // create error0
+        crc = modesChecksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // single bit error case
+        bitErrorTable[n as usize].syndrome = crc;
+        bitErrorTable[n as usize].bits = 1 as c_int;
+        bitErrorTable[n as usize].pos[0 as c_int as usize] = i;
+        bitErrorTable[n as usize].pos[1 as c_int as usize] = -(1 as c_int);
+        n += 1 as c_int;
+        if nfix_crc > 1 as c_int {
+            j = i + 1 as c_int;
+            while j < MODES_LONG_MSG_BITS {
+                let bytepos1: c_int = j >> 3 as c_int;
+                let mask1: c_int = (1 as c_int) << 7 as c_int - (j & 7 as c_int);
+                // revert error1
+                msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar; // create error1
+                crc = modesChecksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // two bit error case
+                if n >= bitErrorTable.len() as c_int {
+                    break;
+                }
+                bitErrorTable[n as usize].syndrome = crc;
+                bitErrorTable[n as usize].bits = 2 as c_int;
+                bitErrorTable[n as usize].pos[0 as c_int as usize] = i;
+                bitErrorTable[n as usize].pos[1 as c_int as usize] = j;
+                n += 1 as c_int;
+                msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar;
+                j += 1
+            }
+        }
+        msg[bytepos0 as usize] = (msg[bytepos0 as usize] as c_int ^ mask0) as c_uchar;
+        i += 1
+    }
+
+    bitErrorTable.sort_by(|e0, e1| {
+        if e0.syndrome == e1.syndrome {
+            Ordering::Equal
+        } else if e0.syndrome < e1.syndrome {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NERRORINFO: usize =
+        (MODES_LONG_MSG_BITS + MODES_LONG_MSG_BITS * (MODES_LONG_MSG_BITS - 1) / 2) as usize;
+
+    #[test]
+    fn test_bit_error_table() {
+        let mut bit_error_table = [errorinfo {
+            syndrome: 0,
+            bits: 0,
+            pos: [0; 2],
+        }; NERRORINFO];
+        let nfix_crc_agressive = 2; // TODO: test with 1 and 2
+        unsafe {
+            modesInitErrorInfoImpl(
+                bit_error_table.as_mut_ptr(),
+                bit_error_table.len() as c_int,
+                nfix_crc_agressive,
+            )
+        };
+
+        // Test code: report if any syndrome appears at least twice. In this
+        // case the correction cannot be done without ambiguity.
+        // Tried it, does not happen for 1- and 2-bit errors.
+        let errorinfo_zero = errorinfo {
+            syndrome: 0,
+            bits: 0,
+            pos: [0; 2],
+        };
+        for i in 1..bit_error_table.len() {
+            // The first 550 are zero in the C impl
+            if i <= 549 {
+                assert_eq!(bit_error_table[i - 1], errorinfo_zero);
+                assert_eq!(bit_error_table[i], errorinfo_zero);
+            } else {
+                assert_ne!(
+                    bit_error_table[i - 1].syndrome,
+                    bit_error_table[i].syndrome,
+                    "modesInitErrorInfo: Collision for syndrome {:0x}\n",
+                    bit_error_table[i].syndrome
+                )
+            }
+        }
+    }
+    /*
+    for (i = 1;  i < NERRORINFO;  i++) {
+        if (bitErrorTable[i-1].syndrome == bitErrorTable[i].syndrome) {
+            fprintf(stderr, "modesInitErrorInfo: Collision for syndrome %06x\n",
+                            (int)bitErrorTable[i].syndrome);
+        }
+    }
+
+    for (i = 0;  i < NERRORINFO;  i++) {
+        printf("syndrome %06x    bit0 %3d    bit1 %3d\n",
+               bitErrorTable[i].syndrome,
+               bitErrorTable[i].pos0, bitErrorTable[i].pos1);
+    }
+    */
 }
