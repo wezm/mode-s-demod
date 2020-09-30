@@ -39,41 +39,38 @@ const MODES_CHECKSUM_TABLE: [u32; 112] = [
     0x000000, 0x000000, 0x000000, 0x000000,
 ];
 
+// TODO: Change input to have a known length so we can get rid of pointer derefs and unsafe
 #[no_mangle]
 pub unsafe extern "C" fn modesChecksum(mut msg: *mut c_uchar, mut bits: c_int) -> u32 {
-    let mut crc: u32 = 0 as c_int as u32;
-    let mut rem: u32 = 0 as c_int as u32;
-    let mut offset: c_int = if bits == 112 as c_int {
-        0 as c_int
+    let mut crc: u32 = 0;
+    let mut offset = if bits == 112 {
+        0
     } else {
-        (112 as c_int) - 56 as c_int
+        112 - 56
     };
-    let mut theByte: u8 = *msg;
-    let mut pCRCTable: *mut u32 =
-        &mut *MODES_CHECKSUM_TABLE.as_mut_ptr().offset(offset as isize) as *mut u32;
+    let mut the_byte: u8 = *msg;
     let mut j: c_int = 0;
 
     // We don't really need to include the checksum itself
-    bits -= 24 as c_int;
-    j = 0 as c_int;
+    bits -= 24;
     while j < bits {
-        if j & 7 as c_int == 0 as c_int {
+        if j & 7 == 0 {
             let fresh0 = msg;
             msg = msg.offset(1);
-            theByte = *fresh0
+            the_byte = *fresh0
         }
         // If bit is set, xor with corresponding table entry.
-        if theByte as c_int & 0x80 as c_int != 0 {
-            crc ^= *pCRCTable
+        if the_byte as c_int & 0x80 != 0 {
+            crc ^= MODES_CHECKSUM_TABLE[offset] // FIXME: bounds
         } // message checksum
-        pCRCTable = pCRCTable.offset(1);
-        theByte = ((theByte as c_int) << 1 as c_int) as u8;
+        offset += 1;
+        the_byte = ((the_byte as c_int) << 1 as c_int) as u8;
         j += 1
     }
-    
-    rem = ((*msg.offset(0 as c_int as isize) as c_int) << 16 as c_int
-        | (*msg.offset(1 as c_int as isize) as c_int) << 8 as c_int
-        | *msg.offset(2 as c_int as isize) as c_int) as u32;
+
+    let rem = ((*msg.offset(0) as c_int) << 16 as c_int
+        | (*msg.offset(1) as c_int) << 8 as c_int
+        | *msg.offset(2) as c_int) as u32;
     return (crc ^ rem) & 0xffffff as c_int as c_uint; // 24 bit checksum syndrome.
 }
 
