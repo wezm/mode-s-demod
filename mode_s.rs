@@ -2,12 +2,17 @@
 
 use std::cmp::Ordering;
 use std::os::raw::{c_char, c_int, c_uchar, c_uint};
-use std::ptr;
+use std::time::SystemTime;
+use std::{ptr, time};
+
+use crate::modes;
 
 const MODES_LONG_MSG_BYTES: c_int = 14;
 const MODES_SHORT_MSG_BYTES: c_int = 7;
 const MODES_LONG_MSG_BITS: c_int = MODES_LONG_MSG_BYTES * 8;
 const MODES_SHORT_MSG_BITS: c_int = MODES_SHORT_MSG_BYTES * 8;
+
+const MODES_ICAO_CACHE_LEN: u32 = 1024; // Value must be a power of two
 
 // Parity table for MODE S Messages.
 // The table contains 112 elements, every element corresponds to a bit set
@@ -232,6 +237,39 @@ pub unsafe extern "C" fn fixBitErrorsImpl(
         i += 1
     }
     return res;
+}
+
+// Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
+// elements, that is assumed to be a power of two
+#[no_mangle]
+pub unsafe extern "C" fn ICAOCacheHashAddress(mut a: u32) -> u32 {
+    // The following three rounds wil make sure that every bit affects
+    // every output bit with ~ 50% of probability.
+    a = (a >> 16 as c_int ^ a).wrapping_mul(0x45d9f3b as c_int as c_uint);
+    a = (a >> 16 as c_int ^ a).wrapping_mul(0x45d9f3b as c_int as c_uint);
+    a = a >> 16 as c_int ^ a;
+    a & (MODES_ICAO_CACHE_LEN - 1)
+}
+
+// Add the specified entry to the cache of recently seen ICAO addresses.
+// Note that we also add a timestamp so that we can make sure that the
+// entry is only valid for MODES_ICAO_CACHE_TTL seconds.
+//
+#[no_mangle]
+pub unsafe extern "C" fn addRecentlySeenICAOAddrImpl(this: *mut modes, addr: u32) {
+    let h: u32 = ICAOCacheHashAddress(addr);
+    *(*this)
+        .icao_cache
+        .offset(h.wrapping_mul(2 as c_int as c_uint) as isize) = addr;
+    // Need seconds since epoch as a u32 to replace time(NULL) call.
+    let now = match SystemTime::now().duration_since(time::UNIX_EPOCH) {
+        Ok(n) => n.as_secs(),
+        Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+    };
+    *(*this).icao_cache.offset(
+        h.wrapping_mul(2 as c_int as c_uint)
+            .wrapping_add(1 as c_int as c_uint) as isize,
+    ) = now as u32; // FIXME: change to 64-bit time
 }
 
 #[cfg(test)]
