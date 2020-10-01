@@ -123,6 +123,10 @@ pub extern "C" fn modesMessageLenByType(type_: c_int) -> c_int {
     }
 }
 
+fn cmp_errorinfo(e0: &errorinfo, e1: &errorinfo) -> Ordering {
+    e0.syndrome.cmp(&e1.syndrome)
+}
+
 // Compute the table of all syndromes for 1-bit and 2-bit error vectors
 #[no_mangle]
 pub unsafe extern "C" fn modesInitErrorInfoImpl(
@@ -174,15 +178,7 @@ pub unsafe extern "C" fn modesInitErrorInfoImpl(
         i += 1
     }
 
-    bitErrorTable.sort_by(|e0, e1| {
-        if e0.syndrome == e1.syndrome {
-            Ordering::Equal
-        } else if e0.syndrome < e1.syndrome {
-            Ordering::Less
-        } else {
-            Ordering::Greater
-        }
-    })
+    bitErrorTable.sort_by(cmp_errorinfo)
 }
 
 #[cfg(test)]
