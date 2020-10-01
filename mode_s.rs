@@ -1,13 +1,8 @@
 // ===================== Mode S detection and decoding  ===================
-use crate::modes;
-use std::cmp::Ordering;
-use std::os::raw::{c_int, c_uchar, c_uint};
-use std::ptr;
 
-extern "C" {
-    #[no_mangle]
-    static mut Modes: modes;
-}
+use std::cmp::Ordering;
+use std::os::raw::{c_char, c_int, c_uchar, c_uint};
+use std::ptr;
 
 const MODES_LONG_MSG_BYTES: c_int = 14;
 const MODES_SHORT_MSG_BYTES: c_int = 7;
@@ -181,6 +176,64 @@ pub unsafe extern "C" fn modesInitErrorInfoImpl(
     bitErrorTable.sort_by(cmp_errorinfo)
 }
 
+// Search for syndrome in table and if an entry is found, flip the necessary
+// bits. Make sure the indices fit into the array
+// Additional parameter: fix only less than maxcorrected bits, and record
+// fixed bit positions in corrected[]. This array can be NULL, otherwise
+// must be of length at least maxcorrected.
+// Return number of fixed bits.
+//
+#[no_mangle]
+pub unsafe extern "C" fn fixBitErrorsImpl(
+    msg: *mut c_uchar,
+    bits: c_int,
+    maxfix: c_int,
+    fixedbits: *mut c_char,
+    table_ptr: *mut errorinfo,
+    table_len: c_int,
+) -> c_int {
+    let bitErrorTable = &mut *ptr::slice_from_raw_parts_mut(table_ptr, table_len as usize);
+    let mut bitpos;
+    let syndrome = modesChecksum(msg, bits);
+    let ei = match bitErrorTable.binary_search_by(|e| e.syndrome.cmp(&syndrome)) {
+        Ok(index) => &bitErrorTable[index],
+        Err(_) => return 0, // No syndrome found
+    };
+
+    // Check if the syndrome fixes more bits than we allow
+    if maxfix < ei.bits {
+        return 0;
+    }
+
+    // Check that all bit positions lie inside the message length
+    let offset = MODES_LONG_MSG_BITS - bits;
+    let mut i = 0 as c_int;
+    while i < ei.bits {
+        bitpos = ei.pos[i as usize] - offset;
+        if bitpos < 0 as c_int || bitpos >= bits {
+            return 0 as c_int;
+        }
+        i += 1
+    }
+
+    // Fix the bits
+    let mut res = 0 as c_int;
+    i = res;
+    while i < ei.bits {
+        bitpos = ei.pos[i as usize] - offset;
+        let ref mut fresh1 = *msg.offset((bitpos >> 3 as c_int) as isize);
+        *fresh1 =
+            (*fresh1 as c_int ^ (1 as c_int) << 7 as c_int - (bitpos & 7 as c_int)) as c_uchar;
+        if !fixedbits.is_null() {
+            let fresh2 = res;
+            res = res + 1;
+            *fixedbits.offset(fresh2 as isize) = bitpos as c_char
+        }
+        i += 1
+    }
+    return res;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,4 +294,9 @@ mod tests {
                bitErrorTable[i].pos0, bitErrorTable[i].pos1);
     }
     */
+
+    #[test]
+    fn test_fix_bit_errors() {
+        // TODO: Port commented out fixBitErrors test code from mode_s.c
+    }
 }
