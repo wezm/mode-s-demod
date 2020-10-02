@@ -13,6 +13,7 @@ const MODES_LONG_MSG_BITS: c_int = MODES_LONG_MSG_BYTES * 8;
 const MODES_SHORT_MSG_BITS: c_int = MODES_SHORT_MSG_BYTES * 8;
 
 const MODES_ICAO_CACHE_LEN: u32 = 1024; // Value must be a power of two
+const MODES_ICAO_CACHE_TTL: u64 = 60; // Time to live of cached addresses
 
 // Parity table for MODE S Messages.
 // The table contains 112 elements, every element corresponds to a bit set
@@ -270,6 +271,24 @@ pub unsafe extern "C" fn addRecentlySeenICAOAddrImpl(this: *mut modes, addr: u32
         h.wrapping_mul(2 as c_int as c_uint)
             .wrapping_add(1 as c_int as c_uint) as isize,
     ) = now as u32; // FIXME: change to 64-bit time
+}
+
+// Returns 1 if the specified ICAO address was seen in a DF format with
+// proper checksum (not xored with address) no more than * MODES_ICAO_CACHE_TTL
+// seconds ago. Otherwise returns 0.
+//
+#[no_mangle]
+pub unsafe extern "C" fn ICAOAddressWasRecentlySeenImpl(this: *const modes, addr: u32) -> c_int {
+    let h: u32 = ICAOCacheHashAddress(addr);
+    let a: u32 = *(*this).icao_cache.offset(h.wrapping_mul(2) as isize);
+    let t: u32 = *(*this)
+        .icao_cache
+        .offset(h.wrapping_mul(2).wrapping_add(1) as isize);
+    let tn = match SystemTime::now().duration_since(time::UNIX_EPOCH) {
+        Ok(n) => n.as_secs(),
+        Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+    };
+    (a != 0 && a == addr && tn.wrapping_sub(u64::from(t)) <= MODES_ICAO_CACHE_TTL) as c_int
 }
 
 #[cfg(test)]
