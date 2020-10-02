@@ -291,6 +291,39 @@ pub unsafe extern "C" fn ICAOAddressWasRecentlySeenImpl(this: *const modes, addr
     (a != 0 && a == addr && tn.wrapping_sub(u64::from(t)) <= MODES_ICAO_CACHE_TTL) as c_int
 }
 
+// In the squawk (identity) field bits are interleaved as follows in
+// (message bit 20 to bit 32):
+//
+// C1-A1-C2-A2-C4-A4-ZERO-B1-D1-B2-D2-B4-D4
+//
+// So every group of three bits A, B, C, D represent an integer from 0 to 7.
+//
+// The actual meaning is just 4 octal numbers, but we convert it into a hex
+// number tha happens to represent the four octal numbers.
+//
+// For more info: http://en.wikipedia.org/wiki/Gillham_code
+//
+#[rustfmt::skip]
+#[no_mangle]
+pub extern "C" fn decodeID13Field(ID13Field: c_int) -> c_int {
+    let mut hexGillham = 0;
+    if ID13Field & 0x1000 != 0 { hexGillham |= 0x0010 } // Bit 12 = C1
+    if ID13Field & 0x0800 != 0 { hexGillham |= 0x1000 } // Bit 11 = A1
+    if ID13Field & 0x0400 != 0 { hexGillham |= 0x0020 } // Bit 10 = C2
+    if ID13Field & 0x0200 != 0 { hexGillham |= 0x2000 } // Bit  9 = A2
+    if ID13Field & 0x0100 != 0 { hexGillham |= 0x0040 } // Bit  8 = C4
+    if ID13Field & 0x0080 != 0 { hexGillham |= 0x4000 } // Bit  7 = A4
+    // TODO: Find out why bit 6 was commented out in the C code
+    // if (ID13Field & 0x0040) {hexGillham |= 0x0800;}  // Bit  6 = X  or M
+    if ID13Field & 0x0020 != 0 { hexGillham |= 0x0100 } // Bit  5 = B1
+    if ID13Field & 0x0010 != 0 { hexGillham |= 0x0001 } // Bit  4 = D1 or Q
+    if ID13Field & 0x0008 != 0 { hexGillham |= 0x0200 } // Bit  3 = B2
+    if ID13Field & 0x0004 != 0 { hexGillham |= 0x0002 } // Bit  2 = D2
+    if ID13Field & 0x0002 != 0 { hexGillham |= 0x0400 } // Bit  1 = B4
+    if ID13Field & 0x0001 != 0 { hexGillham |= 0x0004 } // Bit  0 = D4
+    hexGillham
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
