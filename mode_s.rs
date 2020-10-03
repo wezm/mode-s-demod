@@ -5,6 +5,7 @@ use std::os::raw::{c_char, c_int, c_uchar, c_uint};
 use std::time::SystemTime;
 use std::{ptr, time};
 
+use crate::mode_ac::ModeAToModeC;
 use crate::modes;
 
 const MODES_LONG_MSG_BYTES: c_int = 14;
@@ -50,9 +51,7 @@ const MODES_CHECKSUM_TABLE: [u32; 112] = [
     0x000000, 0x000000, 0x000000, 0x000000,
 ];
 
-extern "C" {
-    fn ModeAToModeC(ModeA: c_uint) -> c_int;
-}
+extern "C" {}
 
 //
 //=========================================================================
