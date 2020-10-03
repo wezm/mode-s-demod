@@ -3,15 +3,52 @@
 use std::cmp::Ordering;
 use std::os::raw::{c_char, c_int, c_uchar, c_uint};
 use std::time::SystemTime;
-use std::{ptr, time};
+use std::{mem, ptr, time};
 
 use crate::mode_ac::ModeAToModeC;
 use crate::{modes, modesMessage};
 
-const MODES_LONG_MSG_BYTES: c_int = 14;
-const MODES_SHORT_MSG_BYTES: c_int = 7;
-const MODES_LONG_MSG_BITS: c_int = MODES_LONG_MSG_BYTES * 8;
-const MODES_SHORT_MSG_BITS: c_int = MODES_SHORT_MSG_BYTES * 8;
+// const MODES_DEFAULT_PPM: c_int = 52;
+// const MODES_DEFAULT_RATE: c_int = 2000000;
+// const MODES_DEFAULT_FREQ: c_int = 1090000000;
+// const MODES_DEFAULT_WIDTH: c_int = 1000;
+// const MODES_DEFAULT_HEIGHT: c_int = 700;
+// const MODES_ASYNC_BUF_NUMBER: usize = 16;
+const MODES_ASYNC_BUF_SIZE: usize = 16 * 16384; // 256k
+const MODES_ASYNC_BUF_SAMPLES: usize = MODES_ASYNC_BUF_SIZE / 2; // Each sample is 2 bytes
+                                                                 // const MODES_AUTO_GAIN: c_int = -100; // Use automatic gain
+                                                                 // const MODES_MAX_GAIN: c_int = 999999; // Use max available gain
+                                                                 // const MODES_MSG_SQUELCH_LEVEL: c_int = 0x02FF; // Average signal strength limit
+                                                                 // const MODES_MSG_ENCODER_ERRS: c_int = 3; // Maximum number of encoding errors
+
+// When changing, change also fixBitErrors() and modesInitErrorTable() !!
+// const MODES_MAX_BITERRORS: c_int = 2; // Global max for fixable bit erros
+
+// const MODEAC_MSG_SAMPLES: c_int = 25 * 2; // include up to the SPI bit
+// const MODEAC_MSG_BYTES: c_int = 2;
+// const MODEAC_MSG_SQUELCH_LEVEL: c_int = 0x07FF; // Average signal strength limit
+// const MODEAC_MSG_FLAG: c_int = 1 << 0;
+// const MODEAC_MSG_MODES_HIT: c_int = 1 << 1;
+// const MODEAC_MSG_MODEA_HIT: c_int = 1 << 2;
+// const MODEAC_MSG_MODEC_HIT: c_int = 1 << 3;
+// const MODEAC_MSG_MODEA_ONLY: c_int = 1 << 4;
+// const MODEAC_MSG_MODEC_OLD: c_int = 1 << 5;
+
+const MODES_PREAMBLE_US: usize = 8; // microseconds = bits
+const MODES_PREAMBLE_SAMPLES: usize = MODES_PREAMBLE_US * 2;
+const MODES_PREAMBLE_SIZE: usize = MODES_PREAMBLE_SAMPLES * mem::size_of::<u16>();
+const MODES_LONG_MSG_BYTES: usize = 14;
+const MODES_SHORT_MSG_BYTES: usize = 7;
+const MODES_LONG_MSG_BITS: c_int = MODES_LONG_MSG_BYTES as c_int * 8;
+const MODES_SHORT_MSG_BITS: c_int = MODES_SHORT_MSG_BYTES as c_int * 8;
+const MODES_LONG_MSG_SAMPLES: usize = MODES_LONG_MSG_BITS as usize * 2;
+// const MODES_SHORT_MSG_SAMPLES: usize = MODES_SHORT_MSG_BITS as usize * 2;
+const MODES_LONG_MSG_SIZE: usize = MODES_LONG_MSG_SAMPLES * mem::size_of::<u16>();
+// const MODES_SHORT_MSG_SIZE: usize = MODES_SHORT_MSG_SAMPLES * mem::size_of::<u16>();
+
+// const MODES_RAWOUT_BUF_SIZE: c_int = 1500;
+// const MODES_RAWOUT_BUF_FLUSH: c_int = MODES_RAWOUT_BUF_SIZE - 200;
+// const MODES_RAWOUT_BUF_RATE: c_int = 1000; // 1000 * 64mS = 1 Min approx
 
 const MODES_ICAO_CACHE_LEN: u32 = 1024; // Value must be a power of two
 const MODES_ICAO_CACHE_TTL: u64 = 60; // Time to live of cached addresses
@@ -817,6 +854,35 @@ pub unsafe extern "C" fn decodeModesMessageImpl(
             (*mm).flight[8 as c_int as usize] = '\u{0}' as i32 as c_char
         }
     };
+}
+
+// Turn I/Q samples pointed by Modes.data into the magnitude vector
+// pointed by Modes.magnitude.
+//
+#[no_mangle]
+pub unsafe extern "C" fn computeMagnitudeVectorImpl(mut p: *mut u16, Modes: *mut modes) {
+    let mut m: *mut u16 = (*Modes)
+        .magnitude
+        .offset((MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES) as isize)
+        as *mut u16;
+
+    ptr::copy_nonoverlapping(
+        (*Modes).magnitude.offset(MODES_ASYNC_BUF_SAMPLES as isize),
+        (*Modes).magnitude,
+        MODES_PREAMBLE_SIZE + MODES_LONG_MSG_SIZE,
+    );
+
+    // Compute the magnitude vector. It's just SQRT(I^2 + Q^2), but
+    // we rescale to the 0-255 range to exploit the full resolution.
+    let mut j = 0;
+    while j < MODES_ASYNC_BUF_SAMPLES {
+        let fresh3 = p;
+        p = p.offset(1);
+        let fresh4 = m;
+        m = m.offset(1);
+        *fresh4 = *(*Modes).maglut.offset(*fresh3 as isize);
+        j = j.wrapping_add(1)
+    }
 }
 
 #[cfg(test)]
