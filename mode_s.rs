@@ -916,6 +916,108 @@ pub extern "C" fn clamped_scale(v: u16, scale: u16) -> u16 {
     u16::try_from(u32::from(v) * u32::from(scale) / 16384).unwrap_or(std::u16::MAX)
 }
 
+// This function decides whether we are sampling early or late,
+// and by approximately how much, by looking at the energy in
+// preamble bits before and after the expected pulse locations.
+//
+// It then deals with one sample pair at a time, comparing samples
+// to make a decision about the bit value. Based on this decision it
+// modifies the sample value of the *adjacent* sample which will
+// contain some of the energy from the bit we just inspected.
+//
+// pPayload[0] should be the start of the preamble,
+// pPayload[-1 .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] should be accessible.
+// pPayload[MODES_PREAMBLE_SAMPLES .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] will be updated.
+#[no_mangle]
+pub unsafe extern "C" fn applyPhaseCorrection(pPayload: *mut u16) {
+    // we expect 1 bits at 0, 2, 7, 9
+    // and 0 bits at -1, 1, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14
+    // use bits -1,6 for early detection (bit 0/7 arrived a little early, our sample period starts after the bit phase so we include some of the next bit)
+    // use bits 3,10 for late detection (bit 2/9 arrived a little late, our sample period starts before the bit phase so we include some of the last bit)
+
+    let onTime: u32 = (*pPayload.offset(0) as c_int
+        + *pPayload.offset(2) as c_int
+        + *pPayload.offset(7) as c_int
+        + *pPayload.offset(9) as c_int) as u32;
+    let early: u32 = ((*pPayload.offset(-(1 as c_int) as isize) as c_int
+        + *pPayload.offset(6) as c_int)
+        << 1 as c_int) as u32;
+    let late: u32 =
+        ((*pPayload.offset(3) as c_int + *pPayload.offset(10) as c_int) << 1 as c_int) as u32;
+
+    if early > late {
+        // Our sample period starts late and so includes some of the next bit.
+        let scaleUp: u16 = (16384 as c_int as c_uint).wrapping_add(
+            (16384 as c_int as c_uint)
+                .wrapping_mul(early)
+                .wrapping_div(early.wrapping_add(onTime)),
+        ) as u16; // 1 + early / (early+onTime)
+        let scaleDown: u16 = (16384 as c_int as c_uint).wrapping_sub(
+            (16384 as c_int as c_uint)
+                .wrapping_mul(early)
+                .wrapping_div(early.wrapping_add(onTime)),
+        ) as u16; // 1 - early / (early+onTime)
+
+        // trailing bits are 0; final data sample will be a bit low.
+        *pPayload.offset(
+            (8 as c_int * 2 as c_int + 14 as c_int * 8 as c_int * 2 as c_int - 1 as c_int) as isize,
+        ) = clamped_scale(
+            *pPayload.offset(
+                (8 as c_int * 2 as c_int + 14 as c_int * 8 as c_int * 2 as c_int - 1 as c_int)
+                    as isize,
+            ),
+            scaleUp,
+        );
+
+        let mut j = MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2;
+        while j > MODES_PREAMBLE_SAMPLES {
+            if *pPayload.offset(j as isize) as c_int > *pPayload.offset((j + 1) as isize) as c_int {
+                // x [1 0] y
+                // x overlapped with the "1" bit and is slightly high
+                *pPayload.offset((j - 1) as isize) =
+                    clamped_scale(*pPayload.offset(j as isize - 1), scaleDown)
+            } else {
+                // x [0 1] y
+                // x overlapped with the "0" bit and is slightly low
+                *pPayload.offset((j - 1) as isize) =
+                    clamped_scale(*pPayload.offset(j as isize - 1), scaleUp)
+            }
+            j -= 2
+        }
+    } else {
+        // Our sample period starts early and so includes some of the previous bit.
+        let scaleUp_0: u16 = (16384 as c_int as c_uint).wrapping_add(
+            (16384 as c_int as c_uint)
+                .wrapping_mul(late)
+                .wrapping_div(late.wrapping_add(onTime)),
+        ) as u16; // 1 + late / (late+onTime)
+        let scaleDown_0: u16 = (16384 as c_int as c_uint).wrapping_sub(
+            (16384 as c_int as c_uint)
+                .wrapping_mul(late)
+                .wrapping_div(late.wrapping_add(onTime)),
+        ) as u16; // 1 - late / (late+onTime)
+
+        // leading bits are 0; first data sample will be a bit low.
+        *pPayload.offset(MODES_PREAMBLE_SAMPLES as isize) =
+            clamped_scale(*pPayload.offset(MODES_PREAMBLE_SAMPLES as isize), scaleUp_0);
+        let mut j = MODES_PREAMBLE_SAMPLES;
+        while j < MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2 {
+            if *pPayload.offset(j as isize) as c_int > *pPayload.offset(j as isize + 1) as c_int {
+                // x [1 0] y
+                // y overlapped with the "0" bit and is slightly low
+                *pPayload.offset(j as isize + 2) =
+                    clamped_scale(*pPayload.offset(j as isize + 2), scaleUp_0)
+            } else {
+                // x [0 1] y
+                // y overlapped with the "1" bit and is slightly high
+                *pPayload.offset(j as isize + 2) =
+                    clamped_scale(*pPayload.offset(j as isize + 2), scaleDown_0)
+            }
+            j += 2
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
