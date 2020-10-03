@@ -460,7 +460,7 @@ pub unsafe extern "C" fn decodeModesMessageImpl(
     match (*mm).msgtype {
         11 => {
             // DF 11
-            (*mm).iid = (*mm).crc as c_int; // Responder capabilities
+            (*mm).iid = (*mm).crc as c_int; // Responder capabilities, zero indicates no communications capability (surveillance only)
             (*mm).addr = ((*msg.offset(1) as c_int) << 16 as c_int
                 | (*msg.offset(2) as c_int) << 8 as c_int
                 | *msg.offset(3) as c_int) as u32;
@@ -485,14 +485,16 @@ pub unsafe extern "C" fn decodeModesMessageImpl(
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
                 // DF 17 : if crc == 0 try to populate our ICAO addresses whitelist.
-                addRecentlySeenICAOAddrImpl(Modes, (*mm).addr); // All other DF's
+                addRecentlySeenICAOAddrImpl(Modes, (*mm).addr);
             }
         }
         18 => {
             // DF 18
+            // This is currently identical to DF 17 as the ca field is being reused to store the
+            // Control Field.
             (*mm).addr = ((*msg.offset(1) as c_int) << 16 as c_int
                 | (*msg.offset(2) as c_int) << 8 as c_int
-                | *msg.offset(3) as c_int) as u32; // Control Field
+                | *msg.offset(3) as c_int) as u32; // Control Field, should always be 0 for ADS-B
             (*mm).ca = *msg.offset(0) as c_int & 0x7 as c_int;
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
@@ -501,6 +503,7 @@ pub unsafe extern "C" fn decodeModesMessageImpl(
             }
         }
         _ => {
+            // All other DF's
             // Compare the checksum with the whitelist of recently seen ICAO
             // addresses. If it matches one, then declare the message as valid
             (*mm).addr = (*mm).crc;
