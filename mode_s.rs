@@ -200,10 +200,10 @@ pub unsafe extern "C" fn fixBitErrorsImpl(
     bits: c_int,
     maxfix: c_int,
     fixedbits: *mut c_char,
-    table_ptr: *mut errorinfo,
+    table_ptr: *const errorinfo,
     table_len: c_int,
 ) -> c_int {
-    let bitErrorTable = &mut *ptr::slice_from_raw_parts_mut(table_ptr, table_len as usize);
+    let bitErrorTable = &*ptr::slice_from_raw_parts(table_ptr, table_len as usize);
     let mut bitpos;
     let syndrome = modesChecksum(msg, bits);
     let ei = match bitErrorTable.binary_search_by(|e| e.syndrome.cmp(&syndrome)) {
