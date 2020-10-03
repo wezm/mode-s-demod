@@ -885,6 +885,31 @@ pub unsafe extern "C" fn computeMagnitudeVectorImpl(mut p: *mut u16, Modes: *mut
     }
 }
 
+// Return -1 if the message is out of phase left-side
+// Return  1 if the message is out of phase right-size
+// Return  0 if the message is not particularly out of phase.
+//
+// Note: this function will access pPreamble[-1], so the caller should make sure to
+// call it only if we are not at the start of the current buffer
+//
+#[no_mangle]
+pub unsafe extern "C" fn detectOutOfPhase(pPreamble: *const u16) -> c_int {
+    if *pPreamble.offset(3) > *pPreamble.offset(2) / 3 {
+        return 1;
+    }
+    if *pPreamble.offset(10) > *pPreamble.offset(9) / 3 {
+        return 1;
+    }
+    if *pPreamble.offset(6) > *pPreamble.offset(7) / 3 {
+        return -1;
+    }
+    if *pPreamble.offset(-1) > *pPreamble.offset(1) / 3 {
+        return -1;
+    }
+
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
