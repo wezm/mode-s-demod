@@ -362,13 +362,13 @@ pub unsafe extern "C" fn decodeAC13Field(AC13Field: c_int, unit: *mut c_int) -> 
 //
 #[no_mangle]
 pub unsafe extern "C" fn decodeAC12Field(AC12Field: c_int, unit: *mut c_int) -> c_int {
-    let q_bit: c_int = AC12Field & 0x10; // Bit 48 = Q
+    let q_bit = (AC12Field & 0x10) != 0; // Bit 48 = Q
     *unit = MODES_UNIT_FEET;
-    if q_bit != 0 {
+    if q_bit {
         // / N is the 11 bit integer resulting from the removal of bit Q at bit 4
         let n: c_int = (AC12Field & 0xfe0) >> 1 | AC12Field & 0xf;
         // The final altitude is the resulting number multiplied by 25, minus 1000.
-        return n * 25 - 1000;
+        n * 25 - 1000
     } else {
         // Make N a 13 bit Gillham coded altitude by inserting M=0 at bit 6
         let mut n_0: c_int = (AC12Field & 0xfc0) << 1 | AC12Field & 0x3f;
@@ -376,8 +376,8 @@ pub unsafe extern "C" fn decodeAC12Field(AC12Field: c_int, unit: *mut c_int) -> 
         if n_0 < -12 {
             n_0 = 0
         }
-        return 100 * n_0;
-    };
+        100 * n_0
+    }
 }
 
 #[cfg(test)]
