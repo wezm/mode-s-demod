@@ -1,6 +1,7 @@
 // ===================== Mode S detection and decoding  ===================
 
 use std::cmp::Ordering;
+use std::convert::TryFrom;
 use std::os::raw::{c_char, c_int, c_uchar, c_uint};
 use std::time::SystemTime;
 use std::{mem, ptr, time};
@@ -908,6 +909,11 @@ pub unsafe extern "C" fn detectOutOfPhase(pPreamble: *const u16) -> c_int {
     }
 
     0
+}
+
+#[no_mangle]
+pub extern "C" fn clamped_scale(v: u16, scale: u16) -> u16 {
+    u16::try_from(u32::from(v) * u32::from(scale) / 16384).unwrap_or(std::u16::MAX)
 }
 
 #[cfg(test)]
