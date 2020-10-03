@@ -380,6 +380,31 @@ pub unsafe extern "C" fn decodeAC12Field(AC12Field: c_int, unit: *mut c_int) -> 
     }
 }
 
+// FIXME: this function has no test coverage
+// Decode the 7 bit ground movement field PWL exponential style scale
+//
+#[no_mangle]
+pub unsafe extern "C" fn decodeMovementField(movement: c_int) -> c_int {
+    // Note: movement codes 0,125,126,127 are all invalid, but they are
+    //       trapped before this function is called.
+    // FIXME: Capture above in types
+    if movement > 123 {
+        199 // > 175kt
+    } else if movement > 108 {
+        (movement - 108) * 5 + 100
+    } else if movement > 93 {
+        (movement - 93) * 2 + 70
+    } else if movement > 38 {
+        movement - 38 + 15
+    } else if movement > 12 {
+        (movement - 11 >> 1) + 2
+    } else if movement > 8 {
+        (movement - 6 >> 2) + 1
+    } else {
+        0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
