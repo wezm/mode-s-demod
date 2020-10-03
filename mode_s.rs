@@ -335,26 +335,28 @@ pub extern "C" fn decodeID13Field(ID13Field: c_int) -> c_int {
 //
 #[no_mangle]
 pub unsafe extern "C" fn decodeAC13Field(AC13Field: c_int, unit: *mut c_int) -> c_int {
-    let m_bit: c_int = AC13Field & 0x40; // set = meters, clear = feet
-    let q_bit: c_int = AC13Field & 0x10; // set = 25 ft encoding, clear = Gillham Mode C encoding
-    if m_bit == 0 {
+    let m_bit = (AC13Field & 0x40) != 0; // set = meters, clear = feet
+    let q_bit = (AC13Field & 0x10) != 0; // set = 25 ft encoding, clear = Gillham Mode C encoding
+    if !m_bit {
         *unit = MODES_UNIT_FEET;
-        if q_bit != 0 {
+        if q_bit {
             // N is the 11 bit integer resulting from the removal of bit Q and M
             let n: c_int = (AC13Field & 0x1f80) >> 2 | (AC13Field & 0x20) >> 1 | AC13Field & 0xf;
             // The final altitude is resulting number multiplied by 25, minus 1000.
-            return n * 25 - 1000;
+            n * 25 - 1000
         } else {
             // N is an 11 bit Gillham coded altitude
             let mut n_0: c_int = ModeAToModeC(decodeID13Field(AC13Field) as c_uint);
-            if n_0 < -12 { n_0 = 0 }
-            return 100 * n_0;
+            if n_0 < -12 {
+                n_0 = 0
+            }
+            100 * n_0
         }
     } else {
         *unit = MODES_UNIT_METERS;
         // TODO(inherited): Implement altitude when meter unit is selected
+        0
     }
-    return 0 as c_int;
 }
 
 #[cfg(test)]
