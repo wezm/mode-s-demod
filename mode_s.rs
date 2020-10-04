@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 use std::convert::TryFrom;
-use std::os::raw::{c_char, c_int, c_uchar, c_uint};
+use std::os::raw::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 use std::time::SystemTime;
 use std::{mem, ptr, time};
 
@@ -89,7 +89,25 @@ const MODES_CHECKSUM_TABLE: [u32; 112] = [
     0x000000, 0x000000, 0x000000, 0x000000,
 ];
 
-extern "C" {}
+extern "C" {
+    #[no_mangle]
+    fn modesSendAllClients(service: c_int, msg: *mut c_void, len: c_int);
+
+    #[no_mangle]
+    fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int;
+
+    #[no_mangle]
+    fn decodeModeAMessage(mm: *mut modesMessage, ModeA: c_int);
+
+    #[no_mangle]
+    fn useModesMessage(mm: *mut modesMessage);
+
+    #[no_mangle]
+    fn dumpRawMessage(descr: *mut c_char, msg: *mut c_uchar, m: *mut u16, offset: u32);
+
+    #[no_mangle]
+    fn modesQueueOutput(mm: *mut modesMessage);
+}
 
 //
 //=========================================================================
@@ -1015,6 +1033,575 @@ pub unsafe extern "C" fn applyPhaseCorrection(pPayload: *mut u16) {
             }
             j += 2
         }
+    };
+}
+
+// Detect a Mode S messages inside the magnitude buffer pointed by 'm' and of
+// size 'mlen' bytes. Every detected Mode S message is convert it into a
+// stream of bits and passed to the function to display it.
+//
+#[no_mangle]
+pub unsafe extern "C" fn detectModeSImpl(
+    m: *mut u16,
+    mlen: u32,
+    Modes: *mut modes,
+    bit_errors_ptr: *const errorinfo,
+    bit_errors_len: c_int,
+) {
+    let mut mm: modesMessage = modesMessage::default();
+    let mut msg: [c_uchar; 14] = [0; 14];
+    let mut pMsg: *mut c_uchar;
+    let mut aux: [u16; 241] = [0; 241];
+    let mut use_correction: c_int = 0 as c_int;
+    let mut current_block_183: u64;
+    // The Mode S preamble is made of impulses of 0.5 microseconds at
+    // the following time offsets:
+    //
+    // 0   - 0.5 usec: first impulse.
+    // 1.0 - 1.5 usec: second impulse.
+    // 3.5 - 4   usec: third impulse.
+    // 4.5 - 5   usec: last impulse.
+    //
+    // Since we are sampling at 2 Mhz every sample in our magnitude vector
+    // is 0.5 usec, so the preamble will look like this, assuming there is
+    // an impulse at offset 0 in the array:
+    //
+    // 0   -----------------
+    // 1   -
+    // 2   ------------------
+    // 3   --
+    // 4   -
+    // 5   --
+    // 6   -
+    // 7   ------------------
+    // 8   --
+    // 9   -------------------
+    //
+    let mut j = 0u32;
+    while j < mlen {
+        let high: c_int;
+        let mut i: c_int;
+        let mut errors: c_int;
+        let mut errors56: c_int;
+        let mut errorsTy: c_int;
+        let mut pPtr: *mut u16;
+        let mut theByte: u8;
+        let mut theErrs: u8;
+        let mut msglen: c_int;
+        let mut scanlen: c_int;
+        let mut sigStrength: c_int;
+        let pPreamble = &mut *m.offset(j as isize) as *mut u16;
+        let mut pPayload = &mut *m
+            .offset(j.wrapping_add((8 as c_int * 2 as c_int) as c_uint) as isize)
+            as *mut u16;
+        // Rather than clear the whole mm structure, just clear the parts which are required. The clear
+        // is required for every bit of the input stream, and we don't want to be memset-ing the whole
+        // modesMessage structure two million times per second if we don't have to..
+        mm.correctedbits = 0 as c_int;
+        mm.crcok = mm.correctedbits;
+        mm.bFlags = mm.crcok;
+        if use_correction == 0 {
+            // This is not a re-try with phase correction
+            // so try to find a new preamble
+            if (*Modes).mode_ac != 0 {
+                let ModeA: c_int = detectModeA(pPreamble, &mut mm);
+                if ModeA != 0 {
+                    // We have found a valid ModeA/C in the data
+                    mm.timestampMsg = (*Modes).timestampBlk.wrapping_add(
+                        j.wrapping_add(1 as c_int as c_uint)
+                            .wrapping_mul(6 as c_int as c_uint) as c_ulong,
+                    );
+                    // Decode the received message
+                    decodeModeAMessage(&mut mm, ModeA);
+                    // Pass data to the next layer
+                    useModesMessage(&mut mm);
+                    j = (j as c_uint).wrapping_add((25 as c_int * 2 as c_int) as c_uint) as u32
+                        as u32;
+                    (*Modes).stat_ModeAC = (*Modes).stat_ModeAC.wrapping_add(1);
+                    current_block_183 = 735147466149431745;
+                } else {
+                    current_block_183 = 7175849428784450219;
+                }
+            } else {
+                current_block_183 = 7175849428784450219;
+            }
+            match current_block_183 {
+                735147466149431745 => {}
+                _ =>
+                // First check of relations between the first 10 samples
+                // representing a valid preamble. We don't even investigate further
+                // if this simple test is not passed
+                {
+                    if !(*pPreamble.offset(0 as c_int as isize) as c_int
+                        > *pPreamble.offset(1 as c_int as isize) as c_int
+                        && (*pPreamble.offset(1 as c_int as isize) as c_int)
+                            < *pPreamble.offset(2 as c_int as isize) as c_int
+                        && *pPreamble.offset(2 as c_int as isize) as c_int
+                            > *pPreamble.offset(3 as c_int as isize) as c_int
+                        && (*pPreamble.offset(3 as c_int as isize) as c_int)
+                            < *pPreamble.offset(0 as c_int as isize) as c_int
+                        && (*pPreamble.offset(4 as c_int as isize) as c_int)
+                            < *pPreamble.offset(0 as c_int as isize) as c_int
+                        && (*pPreamble.offset(5 as c_int as isize) as c_int)
+                            < *pPreamble.offset(0 as c_int as isize) as c_int
+                        && (*pPreamble.offset(6 as c_int as isize) as c_int)
+                            < *pPreamble.offset(0 as c_int as isize) as c_int
+                        && *pPreamble.offset(7 as c_int as isize) as c_int
+                            > *pPreamble.offset(8 as c_int as isize) as c_int
+                        && (*pPreamble.offset(8 as c_int as isize) as c_int)
+                            < *pPreamble.offset(9 as c_int as isize) as c_int
+                        && *pPreamble.offset(9 as c_int as isize) as c_int
+                            > *pPreamble.offset(6 as c_int as isize) as c_int)
+                    {
+                        if (*Modes).debug & (1 as c_int) << 4 as c_int != 0
+                            && *pPreamble as c_int > 25 as c_int
+                        {
+                            dumpRawMessage(
+                                b"Unexpected ratio among first 10 samples\x00" as *const u8
+                                    as *const c_char as *mut c_char,
+                                msg.as_mut_ptr(),
+                                m,
+                                j,
+                            );
+                        }
+                        current_block_183 = 735147466149431745;
+                    } else {
+                        // The samples between the two spikes must be < than the average
+                        // of the high spikes level. We don't test bits too near to
+                        // the high levels as signals can be out of phase so part of the
+                        // energy can be in the near samples
+                        high = (*pPreamble.offset(0 as c_int as isize) as c_int
+                            + *pPreamble.offset(2 as c_int as isize) as c_int
+                            + *pPreamble.offset(7 as c_int as isize) as c_int
+                            + *pPreamble.offset(9 as c_int as isize) as c_int)
+                            / 6 as c_int;
+                        if *pPreamble.offset(4 as c_int as isize) as c_int >= high
+                            || *pPreamble.offset(5 as c_int as isize) as c_int >= high
+                        {
+                            if (*Modes).debug & (1 as c_int) << 4 as c_int != 0
+                                && *pPreamble as c_int > 25 as c_int
+                            {
+                                dumpRawMessage(
+                                    b"Too high level in samples between 3 and 6\x00" as *const u8
+                                        as *const c_char
+                                        as *mut c_char,
+                                    msg.as_mut_ptr(),
+                                    m,
+                                    j,
+                                );
+                            }
+                            current_block_183 = 735147466149431745;
+                        } else if *pPreamble.offset(11 as c_int as isize) as c_int >= high
+                            || *pPreamble.offset(12 as c_int as isize) as c_int >= high
+                            || *pPreamble.offset(13 as c_int as isize) as c_int >= high
+                            || *pPreamble.offset(14 as c_int as isize) as c_int >= high
+                        {
+                            if (*Modes).debug & (1 as c_int) << 4 as c_int != 0
+                                && *pPreamble as c_int > 25 as c_int
+                            {
+                                dumpRawMessage(
+                                    b"Too high level in samples between 10 and 15\x00" as *const u8
+                                        as *const c_char
+                                        as *mut c_char,
+                                    msg.as_mut_ptr(),
+                                    m,
+                                    j,
+                                );
+                            }
+                            current_block_183 = 735147466149431745;
+                        } else {
+                            (*Modes).stat_valid_preamble =
+                                (*Modes).stat_valid_preamble.wrapping_add(1);
+                            current_block_183 = 6450636197030046351;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Similarly samples in the range 11-14 must be low, as it is the
+            // space between the preamble and real data. Again we don't test
+            // bits too near to high levels, see above
+            // If the previous attempt with this message failed, retry using
+            // magnitude correction
+            // Make a copy of the Payload, and phase correct the copy
+            // memcpy(aux.as_mut_ptr() as *mut c_void,
+            //        &mut *pPreamble.offset(-(1 as c_int) as isize) as
+            //            *mut u16 as *const c_void,
+            //        ::std::mem::size_of::<[u16; 241]>() as c_ulong);
+            ptr::copy_nonoverlapping(pPreamble.offset(-1), aux.as_mut_ptr(), aux.len());
+            applyPhaseCorrection(&mut *aux.as_mut_ptr().offset(1));
+            (*Modes).stat_out_of_phase = (*Modes).stat_out_of_phase.wrapping_add(1);
+            pPayload = &mut *aux
+                .as_mut_ptr()
+                .offset((1 as c_int + 8 as c_int * 2 as c_int) as isize)
+                as *mut u16;
+            current_block_183 = 6450636197030046351;
+            // TODO ... apply other kind of corrections
+        }
+        match current_block_183 {
+            6450636197030046351 => {
+                // Decode all the next 112 bits, regardless of the actual message
+                // size. We'll check the actual message type later
+                pMsg = &mut *msg.as_mut_ptr().offset(0 as c_int as isize) as *mut c_uchar;
+                pPtr = pPayload;
+                theByte = 0 as c_int as u8;
+                theErrs = 0 as c_int as u8;
+                errorsTy = 0 as c_int;
+                errors = 0 as c_int;
+                errors56 = 0 as c_int;
+                // We should have 4 'bits' of 0/1 and 1/0 samples in the preamble,
+                // so include these in the signal strength
+                sigStrength = *pPreamble.offset(0 as c_int as isize) as c_int
+                    - *pPreamble.offset(1 as c_int as isize) as c_int
+                    + (*pPreamble.offset(2 as c_int as isize) as c_int
+                        - *pPreamble.offset(3 as c_int as isize) as c_int)
+                    + (*pPreamble.offset(7 as c_int as isize) as c_int
+                        - *pPreamble.offset(6 as c_int as isize) as c_int)
+                    + (*pPreamble.offset(9 as c_int as isize) as c_int
+                        - *pPreamble.offset(8 as c_int as isize) as c_int);
+                scanlen = 14 as c_int * 8 as c_int;
+                msglen = scanlen;
+                i = 0 as c_int;
+                while i < scanlen {
+                    let fresh5 = pPtr;
+                    pPtr = pPtr.offset(1);
+                    let a: u32 = *fresh5 as u32;
+                    let fresh6 = pPtr;
+                    pPtr = pPtr.offset(1);
+                    let b: u32 = *fresh6 as u32;
+                    if a > b {
+                        theByte = (theByte as c_int | 1 as c_int) as u8;
+                        if i < 56 as c_int {
+                            sigStrength = (sigStrength as c_uint).wrapping_add(a.wrapping_sub(b))
+                                as c_int as c_int
+                        }
+                    } else if a < b {
+                        /*theByte |= 0;*/
+                        if i < 56 as c_int {
+                            sigStrength = (sigStrength as c_uint).wrapping_add(b.wrapping_sub(a))
+                                as c_int as c_int
+                        }
+                    } else if i >= 7 as c_int * 8 as c_int {
+                        //(a == b), and we're in the long part of a frame
+                        errors += 1
+                    /*theByte |= 0;*/
+                    } else if i >= 5 as c_int {
+                        //(a == b), and we're in the short part of a frame
+                        scanlen = 14 as c_int * 8 as c_int;
+                        errors += 1;
+                        errors56 = errors
+                    /*theByte |= 0;*/
+                    } else if i != 0 {
+                        //(a == b), and we're in the message type part of a frame
+                        errors += 1;
+                        errors56 = errors;
+                        errorsTy = errors56;
+                        theErrs = (theErrs as c_int | 1 as c_int) as u8
+                    /*theByte |= 0;*/
+                    } else {
+                        //(a == b), and we're in the first bit of the message type part of a frame
+                        errors += 1;
+                        errors56 = errors;
+                        errorsTy = errors56;
+                        theErrs = (theErrs as c_int | 1 as c_int) as u8;
+                        theByte = (theByte as c_int | 1 as c_int) as u8
+                    }
+                    if i & 7 as c_int == 7 as c_int {
+                        let fresh7 = pMsg;
+                        pMsg = pMsg.offset(1);
+                        *fresh7 = theByte
+                    } else if i == 4 as c_int {
+                        msglen = modesMessageLenByType(theByte as c_int);
+                        if errors == 0 as c_int {
+                            scanlen = msglen
+                        }
+                    }
+                    theByte = ((theByte as c_int) << 1 as c_int) as u8;
+                    if i < 7 as c_int {
+                        theErrs = ((theErrs as c_int) << 1 as c_int) as u8
+                    }
+                    // If we've exceeded the permissible number of encoding errors, abandon ship now
+                    if errors > 3 as c_int {
+                        if i < 7 as c_int * 8 as c_int {
+                            msglen = 0 as c_int
+                        } else if errorsTy == 1 as c_int && theErrs as c_int == 0x80 as c_int {
+                            // If we only saw one error in the first bit of the byte of the frame, then it's possible
+                            // we guessed wrongly about the value of the bit. We may be able to correct it by guessing
+                            // the other way.
+                            //
+                            // We guessed a '1' at bit 7, which is the DF length bit == 112 Bits.
+                            // Inverting bit 7 will change the message type from a long to a short.
+                            // Invert the bit, cross your fingers and carry on.
+                            msglen = 7 as c_int * 8 as c_int; // revert to the number of errors prior to bit 56
+                            msg[0 as c_int as usize] =
+                                (msg[0 as c_int as usize] as c_int ^ theErrs as c_int) as c_uchar;
+                            errorsTy = 0 as c_int;
+                            errors = errors56;
+                            (*Modes).stat_DF_Len_Corrected =
+                                (*Modes).stat_DF_Len_Corrected.wrapping_add(1)
+                        } else if i < 14 as c_int * 8 as c_int {
+                            msglen = 7 as c_int * 8 as c_int;
+                            errors = errors56
+                        } else {
+                            msglen = 14 as c_int * 8 as c_int
+                        }
+                        break;
+                    } else {
+                        i += 1
+                    }
+                }
+                // Ensure msglen is consistent with the DF type
+                i = modesMessageLenByType(msg[0 as c_int as usize] as c_int >> 3 as c_int);
+                if msglen > i {
+                    msglen = i
+                } else if msglen < i {
+                    msglen = 0 as c_int
+                }
+                //
+                // If we guessed at any of the bits in the DF type field, then look to see if our guess was sensible.
+                // Do this by looking to see if the original guess results in the DF type being one of the ICAO defined
+                // message types. If it isn't then toggle the guessed bit and see if this new value is ICAO defined.
+                // if the new value is ICAO defined, then update it in our message.
+                if msglen != 0 && errorsTy == 1 as c_int && theErrs as c_int & 0x78 as c_int != 0 {
+                    // We guessed at one (and only one) of the message type bits. See if our guess is "likely"
+                    // to be correct by comparing the DF against a list of known good DF's
+                    theByte = msg[0 as c_int as usize]; // One bit per 32 possible DF's. Set bits 0,4,5,11,16.17.18.19,20,21,22,24
+                    let mut thisDF: c_int = theByte as c_int >> 3 as c_int & 0x1f as c_int;
+                    let validDFbits: u32 = 0x17f0831 as c_int as u32;
+                    let mut thisDFbit: u32 = ((1 as c_int) << thisDF) as u32;
+                    if 0 as c_int as c_uint == validDFbits & thisDFbit {
+                        // The current DF is not ICAO defined, so is probably an errors.
+                        // Toggle the bit we guessed at and see if the resultant DF is more likely
+                        theByte = (theByte as c_int ^ theErrs as c_int) as u8;
+                        thisDF = theByte as c_int >> 3 as c_int & 0x1f as c_int;
+                        thisDFbit = ((1 as c_int) << thisDF) as u32;
+                        // if this DF any more likely?
+                        if validDFbits & thisDFbit != 0 {
+                            // Yep, more likely, so update the main message
+                            msg[0 as c_int as usize] = theByte;
+                            (*Modes).stat_DF_Type_Corrected =
+                                (*Modes).stat_DF_Type_Corrected.wrapping_add(1);
+                            errors -= 1
+                            // decrease the error count so we attempt to use the modified DF.
+                        }
+                    }
+                }
+                // We measured signal strength over the first 56 bits. Don't forget to add 4
+                // for the preamble samples, so round up and divide by 60.
+                sigStrength = (sigStrength + 29 as c_int) / 60 as c_int;
+                // When we reach this point, if error is small, and the signal strength is large enough
+                // we may have a Mode S message on our hands. It may still be broken and the CRC may not
+                // be correct, but this can be handled by the next layer.
+                if msglen != 0 && sigStrength > 0x2ff as c_int && errors <= 3 as c_int {
+                    // Set initial mm structure details
+                    mm.timestampMsg = (*Modes)
+                        .timestampBlk
+                        .wrapping_add(j.wrapping_mul(6 as c_int as c_uint) as c_ulong);
+                    sigStrength = sigStrength + 0x7f as c_int >> 8 as c_int;
+                    mm.signalLevel = if sigStrength < 255 as c_int {
+                        sigStrength
+                    } else {
+                        255 as c_int
+                    } as c_uchar;
+                    mm.phase_corrected = use_correction;
+                    // Decode the received message
+                    decodeModesMessageImpl(
+                        &mut mm,
+                        msg.as_mut_ptr(),
+                        Modes,
+                        bit_errors_ptr,
+                        bit_errors_len,
+                    );
+                    // Update statistics
+                    if (*Modes).stats != 0 {
+                        if mm.crcok != 0 || use_correction != 0 || mm.correctedbits != 0 {
+                            if use_correction != 0 {
+                                match errors {
+                                    0 => {
+                                        (*Modes).stat_ph_demodulated0 =
+                                            (*Modes).stat_ph_demodulated0.wrapping_add(1)
+                                    }
+                                    1 => {
+                                        (*Modes).stat_ph_demodulated1 =
+                                            (*Modes).stat_ph_demodulated1.wrapping_add(1)
+                                    }
+                                    2 => {
+                                        (*Modes).stat_ph_demodulated2 =
+                                            (*Modes).stat_ph_demodulated2.wrapping_add(1)
+                                    }
+                                    _ => {
+                                        (*Modes).stat_ph_demodulated3 =
+                                            (*Modes).stat_ph_demodulated3.wrapping_add(1)
+                                    }
+                                }
+                            } else {
+                                match errors {
+                                    0 => {
+                                        (*Modes).stat_demodulated0 =
+                                            (*Modes).stat_demodulated0.wrapping_add(1)
+                                    }
+                                    1 => {
+                                        (*Modes).stat_demodulated1 =
+                                            (*Modes).stat_demodulated1.wrapping_add(1)
+                                    }
+                                    2 => {
+                                        (*Modes).stat_demodulated2 =
+                                            (*Modes).stat_demodulated2.wrapping_add(1)
+                                    }
+                                    _ => {
+                                        (*Modes).stat_demodulated3 =
+                                            (*Modes).stat_demodulated3.wrapping_add(1)
+                                    }
+                                }
+                            }
+                            if mm.correctedbits == 0 as c_int {
+                                if use_correction != 0 {
+                                    if mm.crcok != 0 {
+                                        (*Modes).stat_ph_goodcrc =
+                                            (*Modes).stat_ph_goodcrc.wrapping_add(1)
+                                    } else {
+                                        (*Modes).stat_ph_badcrc =
+                                            (*Modes).stat_ph_badcrc.wrapping_add(1)
+                                    }
+                                } else if mm.crcok != 0 {
+                                    (*Modes).stat_goodcrc = (*Modes).stat_goodcrc.wrapping_add(1)
+                                } else {
+                                    (*Modes).stat_badcrc = (*Modes).stat_badcrc.wrapping_add(1)
+                                }
+                            } else if use_correction != 0 {
+                                (*Modes).stat_ph_badcrc = (*Modes).stat_ph_badcrc.wrapping_add(1);
+                                (*Modes).stat_ph_fixed = (*Modes).stat_ph_fixed.wrapping_add(1);
+                                if mm.correctedbits != 0 && mm.correctedbits <= 2 as c_int {
+                                    (*Modes).stat_ph_bit_fix
+                                        [(mm.correctedbits - 1 as c_int) as usize] = (*Modes)
+                                        .stat_ph_bit_fix
+                                        [(mm.correctedbits - 1 as c_int) as usize]
+                                        .wrapping_add(1 as c_int as c_uint)
+                                }
+                            } else {
+                                (*Modes).stat_badcrc = (*Modes).stat_badcrc.wrapping_add(1);
+                                (*Modes).stat_fixed = (*Modes).stat_fixed.wrapping_add(1);
+                                if mm.correctedbits != 0 && mm.correctedbits <= 2 as c_int {
+                                    (*Modes).stat_bit_fix
+                                        [(mm.correctedbits - 1 as c_int) as usize] = (*Modes)
+                                        .stat_bit_fix
+                                        [(mm.correctedbits - 1 as c_int) as usize]
+                                        .wrapping_add(1 as c_int as c_uint)
+                                }
+                            }
+                        }
+                    }
+                    // Output debug mode info if needed
+                    if use_correction != 0 {
+                        if (*Modes).debug & (1 as c_int) << 0 as c_int != 0 {
+                            dumpRawMessage(
+                                b"Demodulated with 0 errors\x00" as *const u8 as *const c_char
+                                    as *mut c_char,
+                                msg.as_mut_ptr(),
+                                m,
+                                j,
+                            );
+                        } else if (*Modes).debug & (1 as c_int) << 2 as c_int != 0
+                            && mm.msgtype == 17 as c_int
+                            && (mm.crcok == 0 || mm.correctedbits != 0 as c_int)
+                        {
+                            dumpRawMessage(
+                                b"Decoded with bad CRC\x00" as *const u8 as *const c_char
+                                    as *mut c_char,
+                                msg.as_mut_ptr(),
+                                m,
+                                j,
+                            );
+                        } else if (*Modes).debug & (1 as c_int) << 3 as c_int != 0
+                            && mm.crcok != 0
+                            && mm.correctedbits == 0 as c_int
+                        {
+                            dumpRawMessage(
+                                b"Decoded with good CRC\x00" as *const u8 as *const c_char
+                                    as *mut c_char,
+                                msg.as_mut_ptr(),
+                                m,
+                                j,
+                            );
+                        }
+                    }
+                    // Skip this message if we are sure it's fine
+                    if mm.crcok != 0 {
+                        j = (j as c_uint).wrapping_add(
+                            ((8 as c_int + msglen) * 2 as c_int - 1 as c_int) as c_uint,
+                        ) as u32 as u32
+                    }
+                    // Pass data to the next layer
+                    useModesMessage(&mut mm);
+                } else if (*Modes).debug & (1 as c_int) << 1 as c_int != 0 && use_correction != 0 {
+                    println!("The following message has {} demod errors", errors);
+                    dumpRawMessage(
+                        b"Demodulated with errors\x00" as *const u8 as *const c_char as *mut c_char,
+                        msg.as_mut_ptr(),
+                        m,
+                        j,
+                    );
+                }
+                // Retry with phase correction if enabled, necessary and possible.
+                if (*Modes).phase_enhance != 0
+                    && mm.crcok == 0
+                    && mm.correctedbits == 0
+                    && use_correction == 0
+                    && j != 0
+                    && detectOutOfPhase(pPreamble) != 0
+                {
+                    use_correction = 1 as c_int;
+                    j = j.wrapping_sub(1)
+                } else {
+                    use_correction = 0 as c_int
+                }
+            }
+            _ => {}
+        }
+        j = j.wrapping_add(1)
+    }
+    //Send any remaining partial raw buffers now
+    if (*Modes).rawOutUsed != 0 || (*Modes).beastOutUsed != 0 {
+        (*Modes).net_output_raw_rate_count += 1;
+        if (*Modes).net_output_raw_rate_count > (*Modes).net_output_raw_rate {
+            if (*Modes).rawOutUsed != 0 {
+                modesSendAllClients(
+                    (*Modes).ros,
+                    (*Modes).rawOut as *mut c_void,
+                    (*Modes).rawOutUsed,
+                );
+                (*Modes).rawOutUsed = 0 as c_int
+            }
+            if (*Modes).beastOutUsed != 0 {
+                modesSendAllClients(
+                    (*Modes).bos,
+                    (*Modes).beastOut as *mut c_void,
+                    (*Modes).beastOutUsed,
+                );
+                (*Modes).beastOutUsed = 0 as c_int
+            }
+            (*Modes).net_output_raw_rate_count = 0 as c_int
+        }
+    } else if (*Modes).net != 0 && (*Modes).net_heartbeat_rate != 0 && {
+        (*Modes).net_heartbeat_count += 1;
+        ((*Modes).net_heartbeat_count) > (*Modes).net_heartbeat_rate
+    } {
+        //
+        // We haven't received any Mode A/C/S messages for some time. To try and keep any TCP
+        // links alive, send a null frame. This will help stop any routers discarding our TCP
+        // link which will cause an un-recoverable link error if/when a real frame arrives.
+        //
+        // Fudge up a null message
+        // memset(&mut mm as *mut modesMessage as *mut c_void,
+        //        0 as c_int,
+        //        ::std::mem::size_of::<modesMessage>() as c_ulong);
+        mm = modesMessage::default();
+        mm.msgbits = 7 as c_int * 8 as c_int;
+        mm.timestampMsg = (*Modes).timestampBlk;
+        // Feed output clients
+        modesQueueOutput(&mut mm);
+        // Reset the heartbeat counter
+        (*Modes).net_heartbeat_count = 0 as c_int
     };
 }
 

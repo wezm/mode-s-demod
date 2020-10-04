@@ -304,7 +304,7 @@ pub struct modes {
     pub stat_blocks_processed: c_uint,
     pub stat_blocks_dropped: c_uint,
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct modesMessage {
     pub msg: [c_uchar; 14],
