@@ -25,15 +25,15 @@ const MODES_MSG_ENCODER_ERRS: c_int = 3; // Maximum number of encoding errors
 // When changing, change also fixBitErrors() and modesInitErrorTable() !!
 const MODES_MAX_BITERRORS: c_int = 2; // Global max for fixable bit erros
 
-const MODEAC_MSG_SAMPLES: c_int = 25 * 2; // include up to the SPI bit
-                                          // const MODEAC_MSG_BYTES: c_int = 2;
-                                          // const MODEAC_MSG_SQUELCH_LEVEL: c_int = 0x07FF; // Average signal strength limit
-                                          // const MODEAC_MSG_FLAG: c_int = 1 << 0;
-                                          // const MODEAC_MSG_MODES_HIT: c_int = 1 << 1;
-                                          // const MODEAC_MSG_MODEA_HIT: c_int = 1 << 2;
-                                          // const MODEAC_MSG_MODEC_HIT: c_int = 1 << 3;
-                                          // const MODEAC_MSG_MODEA_ONLY: c_int = 1 << 4;
-                                          // const MODEAC_MSG_MODEC_OLD: c_int = 1 << 5;
+const MODEAC_MSG_SAMPLES: u32 = 25 * 2; // include up to the SPI bit
+                                        // const MODEAC_MSG_BYTES: c_int = 2;
+                                        // const MODEAC_MSG_SQUELCH_LEVEL: c_int = 0x07FF; // Average signal strength limit
+                                        // const MODEAC_MSG_FLAG: c_int = 1 << 0;
+                                        // const MODEAC_MSG_MODES_HIT: c_int = 1 << 1;
+                                        // const MODEAC_MSG_MODEA_HIT: c_int = 1 << 2;
+                                        // const MODEAC_MSG_MODEC_HIT: c_int = 1 << 3;
+                                        // const MODEAC_MSG_MODEA_ONLY: c_int = 1 << 4;
+                                        // const MODEAC_MSG_MODEC_OLD: c_int = 1 << 5;
 
 const MODES_PREAMBLE_US: usize = 8; // microseconds = bits
 const MODES_PREAMBLE_SAMPLES: usize = MODES_PREAMBLE_US * 2;
@@ -115,7 +115,7 @@ extern "C" {
     fn useModesMessage(mm: *mut modesMessage);
 
     #[no_mangle]
-    fn dumpRawMessage(descr: *mut c_char, msg: *mut c_uchar, m: *mut u16, offset: u32);
+    fn dumpRawMessage(descr: *const c_char, msg: *mut c_uchar, m: *mut u16, offset: u32);
 
     #[no_mangle]
     fn modesQueueOutput(mm: *mut modesMessage);
@@ -1061,10 +1061,10 @@ pub unsafe extern "C" fn detectModeSImpl(
     bit_errors_len: c_int,
 ) {
     let mut mm: modesMessage = modesMessage::default();
-    let mut msg: [c_uchar; 14] = [0; 14];
+    let mut msg = [0; MODES_LONG_MSG_BYTES];
     let mut pMsg: *mut c_uchar;
-    let mut aux: [u16; 241] = [0; 241];
-    let mut use_correction: c_int = 0 as c_int;
+    let mut aux = [0; MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES + 1];
+    let mut use_correction: c_int = 0;
     let mut current_block_183: u64;
     // The Mode S preamble is made of impulses of 0.5 microseconds at
     // the following time offsets:
@@ -1102,16 +1102,17 @@ pub unsafe extern "C" fn detectModeSImpl(
         let mut msglen: c_int;
         let mut scanlen: c_int;
         let mut sigStrength: c_int;
-        let pPreamble = &mut *m.offset(j as isize) as *mut u16;
-        let mut pPayload = &mut *m
-            .offset(j.wrapping_add((8 as c_int * 2 as c_int) as c_uint) as isize)
-            as *mut u16;
+
+        let pPreamble = m.offset(j as isize);
+        let mut pPayload = m.offset(j as isize + MODES_PREAMBLE_SAMPLES as isize);
+
         // Rather than clear the whole mm structure, just clear the parts which are required. The clear
         // is required for every bit of the input stream, and we don't want to be memset-ing the whole
         // modesMessage structure two million times per second if we don't have to..
-        mm.correctedbits = 0 as c_int;
+        mm.correctedbits = 0;
         mm.crcok = mm.correctedbits;
         mm.bFlags = mm.crcok;
+
         if use_correction == 0 {
             // This is not a re-try with phase correction
             // so try to find a new preamble
@@ -1119,15 +1120,16 @@ pub unsafe extern "C" fn detectModeSImpl(
                 let ModeA = detectModeA(pPreamble, &mut mm);
                 if ModeA != 0 {
                     // We have found a valid ModeA/C in the data
-                    mm.timestampMsg = (*Modes).timestampBlk.wrapping_add(
-                        j.wrapping_add(1 as c_int as c_uint)
-                            .wrapping_mul(6 as c_int as c_uint) as c_ulong,
-                    );
+                    mm.timestampMsg = (*Modes)
+                        .timestampBlk
+                        .wrapping_add(j.wrapping_add(1).wrapping_mul(6) as c_ulong);
+
                     // Decode the received message
                     decodeModeAMessage(&mut mm, ModeA);
+
                     // Pass data to the next layer
                     useModesMessage(&mut mm);
-                    j = (j as c_uint).wrapping_add(MODEAC_MSG_SAMPLES as c_uint) as u32 as u32;
+                    j += MODEAC_MSG_SAMPLES;
                     (*Modes).stat_ModeAC = (*Modes).stat_ModeAC.wrapping_add(1);
                     current_block_183 = 735147466149431745;
                 } else {
@@ -1136,6 +1138,7 @@ pub unsafe extern "C" fn detectModeSImpl(
             } else {
                 current_block_183 = 7175849428784450219;
             }
+
             match current_block_183 {
                 735147466149431745 => {}
                 _ =>
@@ -1143,33 +1146,23 @@ pub unsafe extern "C" fn detectModeSImpl(
                 // representing a valid preamble. We don't even investigate further
                 // if this simple test is not passed
                 {
-                    if !(*pPreamble.offset(0 as c_int as isize) as c_int
-                        > *pPreamble.offset(1 as c_int as isize) as c_int
-                        && (*pPreamble.offset(1 as c_int as isize) as c_int)
-                            < *pPreamble.offset(2 as c_int as isize) as c_int
-                        && *pPreamble.offset(2 as c_int as isize) as c_int
-                            > *pPreamble.offset(3 as c_int as isize) as c_int
-                        && (*pPreamble.offset(3 as c_int as isize) as c_int)
-                            < *pPreamble.offset(0 as c_int as isize) as c_int
-                        && (*pPreamble.offset(4 as c_int as isize) as c_int)
-                            < *pPreamble.offset(0 as c_int as isize) as c_int
-                        && (*pPreamble.offset(5 as c_int as isize) as c_int)
-                            < *pPreamble.offset(0 as c_int as isize) as c_int
-                        && (*pPreamble.offset(6 as c_int as isize) as c_int)
-                            < *pPreamble.offset(0 as c_int as isize) as c_int
-                        && *pPreamble.offset(7 as c_int as isize) as c_int
-                            > *pPreamble.offset(8 as c_int as isize) as c_int
-                        && (*pPreamble.offset(8 as c_int as isize) as c_int)
-                            < *pPreamble.offset(9 as c_int as isize) as c_int
-                        && *pPreamble.offset(9 as c_int as isize) as c_int
-                            > *pPreamble.offset(6 as c_int as isize) as c_int)
+                    if !(*pPreamble.offset(0) > *pPreamble.offset(1)
+                        && (*pPreamble.offset(1)) < *pPreamble.offset(2)
+                        && *pPreamble.offset(2) > *pPreamble.offset(3)
+                        && (*pPreamble.offset(3)) < *pPreamble.offset(0)
+                        && (*pPreamble.offset(4)) < *pPreamble.offset(0)
+                        && (*pPreamble.offset(5)) < *pPreamble.offset(0)
+                        && (*pPreamble.offset(6)) < *pPreamble.offset(0)
+                        && *pPreamble.offset(7) > *pPreamble.offset(8)
+                        && (*pPreamble.offset(8)) < *pPreamble.offset(9)
+                        && *pPreamble.offset(9) > *pPreamble.offset(6))
                     {
                         if (*Modes).debug & MODES_DEBUG_NOPREAMBLE != 0
                             && *pPreamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
                         {
                             dumpRawMessage(
-                                b"Unexpected ratio among first 10 samples\x00" as *const u8
-                                    as *const c_char as *mut c_char,
+                                b"Unexpected ratio among first 10 samples\x00".as_ptr()
+                                    as *const c_char,
                                 msg.as_mut_ptr(),
                                 m,
                                 j,
@@ -1181,39 +1174,40 @@ pub unsafe extern "C" fn detectModeSImpl(
                         // of the high spikes level. We don't test bits too near to
                         // the high levels as signals can be out of phase so part of the
                         // energy can be in the near samples
-                        high = (*pPreamble.offset(0 as c_int as isize) as c_int
-                            + *pPreamble.offset(2 as c_int as isize) as c_int
-                            + *pPreamble.offset(7 as c_int as isize) as c_int
-                            + *pPreamble.offset(9 as c_int as isize) as c_int)
+                        high = (*pPreamble.offset(0) as c_int
+                            + *pPreamble.offset(2) as c_int
+                            + *pPreamble.offset(7) as c_int
+                            + *pPreamble.offset(9) as c_int)
                             / 6 as c_int;
-                        if *pPreamble.offset(4 as c_int as isize) as c_int >= high
-                            || *pPreamble.offset(5 as c_int as isize) as c_int >= high
+                        if *pPreamble.offset(4) as c_int >= high
+                            || *pPreamble.offset(5) as c_int >= high
                         {
                             if (*Modes).debug & MODES_DEBUG_NOPREAMBLE != 0
                                 && *pPreamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
                             {
                                 dumpRawMessage(
-                                    b"Too high level in samples between 3 and 6\x00" as *const u8
-                                        as *const c_char
-                                        as *mut c_char,
+                                    b"Too high level in samples between 3 and 6\x00".as_ptr()
+                                        as *const c_char,
                                     msg.as_mut_ptr(),
                                     m,
                                     j,
                                 );
                             }
                             current_block_183 = 735147466149431745;
-                        } else if *pPreamble.offset(11 as c_int as isize) as c_int >= high
-                            || *pPreamble.offset(12 as c_int as isize) as c_int >= high
-                            || *pPreamble.offset(13 as c_int as isize) as c_int >= high
-                            || *pPreamble.offset(14 as c_int as isize) as c_int >= high
+                        } else if *pPreamble.offset(11) as c_int >= high
+                            || *pPreamble.offset(12) as c_int >= high
+                            || *pPreamble.offset(13) as c_int >= high
+                            || *pPreamble.offset(14) as c_int >= high
                         {
+                            // Similarly samples in the range 11-14 must be low, as it is the
+                            // space between the preamble and real data. Again we don't test
+                            // bits too near to high levels, see above
                             if (*Modes).debug & MODES_DEBUG_NOPREAMBLE != 0
                                 && *pPreamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
                             {
                                 dumpRawMessage(
-                                    b"Too high level in samples between 10 and 15\x00" as *const u8
-                                        as *const c_char
-                                        as *mut c_char,
+                                    b"Too high level in samples between 10 and 15\x00".as_ptr()
+                                        as *const c_char,
                                     msg.as_mut_ptr(),
                                     m,
                                     j,
@@ -1229,47 +1223,36 @@ pub unsafe extern "C" fn detectModeSImpl(
                 }
             }
         } else {
-            // Similarly samples in the range 11-14 must be low, as it is the
-            // space between the preamble and real data. Again we don't test
-            // bits too near to high levels, see above
             // If the previous attempt with this message failed, retry using
             // magnitude correction
             // Make a copy of the Payload, and phase correct the copy
-            // memcpy(aux.as_mut_ptr() as *mut c_void,
-            //        &mut *pPreamble.offset(-(1 as c_int) as isize) as
-            //            *mut u16 as *const c_void,
-            //        ::std::mem::size_of::<[u16; 241]>() as c_ulong);
             ptr::copy_nonoverlapping(pPreamble.offset(-1), aux.as_mut_ptr(), aux.len());
             applyPhaseCorrection(&mut *aux.as_mut_ptr().offset(1));
             (*Modes).stat_out_of_phase = (*Modes).stat_out_of_phase.wrapping_add(1);
-            pPayload = &mut *aux
-                .as_mut_ptr()
-                .offset((1 as c_int + 8 as c_int * 2 as c_int) as isize)
-                as *mut u16;
+            pPayload = aux.as_mut_ptr().offset(1 + MODES_PREAMBLE_SAMPLES as isize) as *mut u16;
             current_block_183 = 6450636197030046351;
             // TODO ... apply other kind of corrections
         }
+
         match current_block_183 {
             6450636197030046351 => {
                 // Decode all the next 112 bits, regardless of the actual message
                 // size. We'll check the actual message type later
-                pMsg = &mut *msg.as_mut_ptr().offset(0 as c_int as isize) as *mut c_uchar;
+                pMsg = &mut *msg.as_mut_ptr().offset(0) as *mut c_uchar;
                 pPtr = pPayload;
-                theByte = 0 as c_int as u8;
-                theErrs = 0 as c_int as u8;
-                errorsTy = 0 as c_int;
-                errors = 0 as c_int;
-                errors56 = 0 as c_int;
+                theByte = 0;
+                theErrs = 0;
+                errorsTy = 0;
+                errors = 0;
+                errors56 = 0;
+
                 // We should have 4 'bits' of 0/1 and 1/0 samples in the preamble,
                 // so include these in the signal strength
-                sigStrength = *pPreamble.offset(0 as c_int as isize) as c_int
-                    - *pPreamble.offset(1 as c_int as isize) as c_int
-                    + (*pPreamble.offset(2 as c_int as isize) as c_int
-                        - *pPreamble.offset(3 as c_int as isize) as c_int)
-                    + (*pPreamble.offset(7 as c_int as isize) as c_int
-                        - *pPreamble.offset(6 as c_int as isize) as c_int)
-                    + (*pPreamble.offset(9 as c_int as isize) as c_int
-                        - *pPreamble.offset(8 as c_int as isize) as c_int);
+                sigStrength = *pPreamble.offset(0) as c_int - *pPreamble.offset(1) as c_int
+                    + (*pPreamble.offset(2) as c_int - *pPreamble.offset(3) as c_int)
+                    + (*pPreamble.offset(7) as c_int - *pPreamble.offset(6) as c_int)
+                    + (*pPreamble.offset(9) as c_int - *pPreamble.offset(8) as c_int);
+
                 scanlen = MODES_LONG_MSG_BITS;
                 msglen = scanlen;
                 i = 0 as c_int;
@@ -1281,22 +1264,22 @@ pub unsafe extern "C" fn detectModeSImpl(
                     pPtr = pPtr.offset(1);
                     let b = *fresh6 as u32;
                     if a > b {
-                        theByte = (theByte as c_int | 1 as c_int) as u8;
-                        if i < 56 as c_int {
-                            sigStrength = (sigStrength as c_uint).wrapping_add(a.wrapping_sub(b))
-                                as c_int as c_int
+                        theByte |= 1;
+                        if i < 56 {
+                            sigStrength =
+                                (sigStrength as c_uint).wrapping_add(a.wrapping_sub(b)) as c_int
                         }
                     } else if a < b {
                         /*theByte |= 0;*/
-                        if i < 56 as c_int {
-                            sigStrength = (sigStrength as c_uint).wrapping_add(b.wrapping_sub(a))
-                                as c_int as c_int
+                        if i < 56 {
+                            sigStrength =
+                                (sigStrength as c_uint).wrapping_add(b.wrapping_sub(a)) as c_int
                         }
                     } else if i >= MODES_SHORT_MSG_BITS {
                         //(a == b), and we're in the long part of a frame
                         errors += 1
                     /*theByte |= 0;*/
-                    } else if i >= 5 as c_int {
+                    } else if i >= 5 {
                         //(a == b), and we're in the short part of a frame
                         scanlen = MODES_LONG_MSG_BITS;
                         errors += 1;
@@ -1307,17 +1290,18 @@ pub unsafe extern "C" fn detectModeSImpl(
                         errors += 1;
                         errors56 = errors;
                         errorsTy = errors56;
-                        theErrs = (theErrs as c_int | 1 as c_int) as u8
+                        theErrs |= 1;
                     /*theByte |= 0;*/
                     } else {
                         //(a == b), and we're in the first bit of the message type part of a frame
                         errors += 1;
                         errors56 = errors;
                         errorsTy = errors56;
-                        theErrs = (theErrs as c_int | 1 as c_int) as u8;
-                        theByte = (theByte as c_int | 1 as c_int) as u8
+                        theErrs |= 1;
+                        theByte |= 1;
                     }
-                    if i & 7 as c_int == 7 as c_int {
+
+                    if i & 7 == 7 {
                         let fresh7 = pMsg;
                         pMsg = pMsg.offset(1);
                         *fresh7 = theByte
@@ -1327,15 +1311,17 @@ pub unsafe extern "C" fn detectModeSImpl(
                             scanlen = msglen
                         }
                     }
+
                     theByte = ((theByte as c_int) << 1 as c_int) as u8;
-                    if i < 7 as c_int {
-                        theErrs = ((theErrs as c_int) << 1 as c_int) as u8
+                    if i < 7 {
+                        theErrs = theErrs << 1;
                     }
+
                     // If we've exceeded the permissible number of encoding errors, abandon ship now
                     if errors > MODES_MSG_ENCODER_ERRS {
                         if i < MODES_SHORT_MSG_BITS {
-                            msglen = 0 as c_int
-                        } else if errorsTy == 1 as c_int && theErrs as c_int == 0x80 as c_int {
+                            msglen = 0;
+                        } else if errorsTy == 1 && theErrs == 0x80 {
                             // If we only saw one error in the first bit of the byte of the frame, then it's possible
                             // we guessed wrongly about the value of the bit. We may be able to correct it by guessing
                             // the other way.
@@ -1344,12 +1330,11 @@ pub unsafe extern "C" fn detectModeSImpl(
                             // Inverting bit 7 will change the message type from a long to a short.
                             // Invert the bit, cross your fingers and carry on.
                             msglen = MODES_SHORT_MSG_BITS; // revert to the number of errors prior to bit 56
-                            msg[0 as c_int as usize] =
-                                (msg[0 as c_int as usize] as c_int ^ theErrs as c_int) as c_uchar;
-                            errorsTy = 0 as c_int;
+                            msg[0] = (msg[0] as c_int ^ theErrs as c_int) as c_uchar;
+                            errorsTy = 0;
                             errors = errors56;
                             (*Modes).stat_DF_Len_Corrected =
-                                (*Modes).stat_DF_Len_Corrected.wrapping_add(1)
+                                (*Modes).stat_DF_Len_Corrected.wrapping_add(1);
                         } else if i < MODES_LONG_MSG_BITS {
                             msglen = MODES_SHORT_MSG_BITS;
                             errors = errors56
@@ -1361,14 +1346,15 @@ pub unsafe extern "C" fn detectModeSImpl(
                         i += 1
                     }
                 }
+
                 // Ensure msglen is consistent with the DF type
-                i = modesMessageLenByType(msg[0 as c_int as usize] as c_int >> 3 as c_int);
+                i = modesMessageLenByType(msg[0] as c_int >> 3 as c_int);
                 if msglen > i {
                     msglen = i
                 } else if msglen < i {
                     msglen = 0 as c_int
                 }
-                //
+
                 // If we guessed at any of the bits in the DF type field, then look to see if our guess was sensible.
                 // Do this by looking to see if the original guess results in the DF type being one of the ICAO defined
                 // message types. If it isn't then toggle the guessed bit and see if this new value is ICAO defined.
@@ -1397,9 +1383,11 @@ pub unsafe extern "C" fn detectModeSImpl(
                         }
                     }
                 }
+
                 // We measured signal strength over the first 56 bits. Don't forget to add 4
                 // for the preamble samples, so round up and divide by 60.
-                sigStrength = (sigStrength + 29 as c_int) / 60 as c_int;
+                sigStrength = (sigStrength + 29) / 60;
+
                 // When we reach this point, if error is small, and the signal strength is large enough
                 // we may have a Mode S message on our hands. It may still be broken and the CRC may not
                 // be correct, but this can be handled by the next layer.
@@ -1410,14 +1398,11 @@ pub unsafe extern "C" fn detectModeSImpl(
                     // Set initial mm structure details
                     mm.timestampMsg = (*Modes)
                         .timestampBlk
-                        .wrapping_add(j.wrapping_mul(6 as c_int as c_uint) as c_ulong);
-                    sigStrength = sigStrength + 0x7f as c_int >> 8 as c_int;
-                    mm.signalLevel = if sigStrength < 255 as c_int {
-                        sigStrength
-                    } else {
-                        255 as c_int
-                    } as c_uchar;
+                        .wrapping_add(j.wrapping_mul(6) as c_ulong);
+                    sigStrength = sigStrength + 0x7f >> 8;
+                    mm.signalLevel = u8::try_from(sigStrength).unwrap_or(std::u8::MAX);
                     mm.phase_corrected = use_correction;
+
                     // Decode the received message
                     decodeModesMessageImpl(
                         &mut mm,
@@ -1426,6 +1411,7 @@ pub unsafe extern "C" fn detectModeSImpl(
                         bit_errors_ptr,
                         bit_errors_len,
                     );
+
                     // Update statistics
                     if (*Modes).stats != 0 {
                         if mm.crcok != 0 || use_correction != 0 || mm.correctedbits != 0 {
@@ -1468,6 +1454,7 @@ pub unsafe extern "C" fn detectModeSImpl(
                                     }
                                 }
                             }
+
                             if mm.correctedbits == 0 as c_int {
                                 if use_correction != 0 {
                                     if mm.crcok != 0 {
@@ -1487,32 +1474,28 @@ pub unsafe extern "C" fn detectModeSImpl(
                                 (*Modes).stat_ph_fixed = (*Modes).stat_ph_fixed.wrapping_add(1);
                                 if mm.correctedbits != 0 && mm.correctedbits <= MODES_MAX_BITERRORS
                                 {
-                                    (*Modes).stat_ph_bit_fix
-                                        [(mm.correctedbits - 1 as c_int) as usize] = (*Modes)
-                                        .stat_ph_bit_fix
-                                        [(mm.correctedbits - 1 as c_int) as usize]
-                                        .wrapping_add(1 as c_int as c_uint)
+                                    (*Modes).stat_ph_bit_fix[(mm.correctedbits - 1) as usize] =
+                                        (*Modes).stat_ph_bit_fix[(mm.correctedbits - 1) as usize]
+                                            .wrapping_add(1)
                                 }
                             } else {
                                 (*Modes).stat_badcrc = (*Modes).stat_badcrc.wrapping_add(1);
                                 (*Modes).stat_fixed = (*Modes).stat_fixed.wrapping_add(1);
                                 if mm.correctedbits != 0 && mm.correctedbits <= MODES_MAX_BITERRORS
                                 {
-                                    (*Modes).stat_bit_fix
-                                        [(mm.correctedbits - 1 as c_int) as usize] = (*Modes)
-                                        .stat_bit_fix
-                                        [(mm.correctedbits - 1 as c_int) as usize]
-                                        .wrapping_add(1 as c_int as c_uint)
+                                    (*Modes).stat_bit_fix[(mm.correctedbits - 1) as usize] =
+                                        (*Modes).stat_bit_fix[(mm.correctedbits - 1) as usize]
+                                            .wrapping_add(1)
                                 }
                             }
                         }
                     }
+
                     // Output debug mode info if needed
                     if use_correction != 0 {
                         if (*Modes).debug & MODES_DEBUG_DEMOD != 0 {
                             dumpRawMessage(
-                                b"Demodulated with 0 errors\x00" as *const u8 as *const c_char
-                                    as *mut c_char,
+                                b"Demodulated with 0 errors\x00".as_ptr() as *const c_char,
                                 msg.as_mut_ptr(),
                                 m,
                                 j,
@@ -1522,8 +1505,7 @@ pub unsafe extern "C" fn detectModeSImpl(
                             && (mm.crcok == 0 || mm.correctedbits != 0 as c_int)
                         {
                             dumpRawMessage(
-                                b"Decoded with bad CRC\x00" as *const u8 as *const c_char
-                                    as *mut c_char,
+                                b"Decoded with bad CRC\x00".as_ptr() as *const c_char,
                                 msg.as_mut_ptr(),
                                 m,
                                 j,
@@ -1533,32 +1515,31 @@ pub unsafe extern "C" fn detectModeSImpl(
                             && mm.correctedbits == 0 as c_int
                         {
                             dumpRawMessage(
-                                b"Decoded with good CRC\x00" as *const u8 as *const c_char
-                                    as *mut c_char,
+                                b"Decoded with good CRC\x00".as_ptr() as *const c_char,
                                 msg.as_mut_ptr(),
                                 m,
                                 j,
                             );
                         }
                     }
+
                     // Skip this message if we are sure it's fine
                     if mm.crcok != 0 {
-                        j = (j as c_uint).wrapping_add(
-                            ((MODES_PREAMBLE_US as c_int + msglen) * 2 as c_int - 1 as c_int)
-                                as c_uint,
-                        ) as u32 as u32
+                        j += (MODES_PREAMBLE_US as u32 + msglen as u32) * 2 - 1;
                     }
+
                     // Pass data to the next layer
                     useModesMessage(&mut mm);
                 } else if (*Modes).debug & MODES_DEBUG_DEMODERR != 0 && use_correction != 0 {
                     println!("The following message has {} demod errors", errors);
                     dumpRawMessage(
-                        b"Demodulated with errors\x00" as *const u8 as *const c_char as *mut c_char,
+                        b"Demodulated with errors\x00".as_ptr() as *const c_char,
                         msg.as_mut_ptr(),
                         m,
                         j,
                     );
                 }
+
                 // Retry with phase correction if enabled, necessary and possible.
                 if (*Modes).phase_enhance != 0
                     && mm.crcok == 0
@@ -1567,17 +1548,18 @@ pub unsafe extern "C" fn detectModeSImpl(
                     && j != 0
                     && detectOutOfPhase(pPreamble) != 0
                 {
-                    use_correction = 1 as c_int;
+                    use_correction = 1;
                     j = j.wrapping_sub(1)
                 } else {
-                    use_correction = 0 as c_int
+                    use_correction = 0;
                 }
             }
             _ => {}
         }
         j = j.wrapping_add(1)
     }
-    //Send any remaining partial raw buffers now
+
+    // Send any remaining partial raw buffers now
     if (*Modes).rawOutUsed != 0 || (*Modes).beastOutUsed != 0 {
         (*Modes).net_output_raw_rate_count += 1;
         if (*Modes).net_output_raw_rate_count > (*Modes).net_output_raw_rate {
@@ -1589,6 +1571,7 @@ pub unsafe extern "C" fn detectModeSImpl(
                 );
                 (*Modes).rawOutUsed = 0 as c_int
             }
+
             if (*Modes).beastOutUsed != 0 {
                 modesSendAllClients(
                     (*Modes).bos,
@@ -1615,10 +1598,12 @@ pub unsafe extern "C" fn detectModeSImpl(
         mm = modesMessage::default();
         mm.msgbits = 7 as c_int * 8 as c_int;
         mm.timestampMsg = (*Modes).timestampBlk;
+
         // Feed output clients
         modesQueueOutput(&mut mm);
+
         // Reset the heartbeat counter
-        (*Modes).net_heartbeat_count = 0 as c_int
+        (*Modes).net_heartbeat_count = 0;
     };
 }
 
