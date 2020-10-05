@@ -2,9 +2,11 @@
 
 use std::cmp::Ordering;
 use std::convert::TryFrom;
+use std::ffi::CStr;
+use std::io::Write;
 use std::os::raw::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 use std::time::SystemTime;
-use std::{mem, ptr, time};
+use std::{io, mem, ptr, time};
 
 use crate::io::modesQueueOutput;
 use crate::mode_ac::{decodeModeAMessage, detectModeA, ModeAToModeC, MODEAC_MSG_SAMPLES};
@@ -19,9 +21,6 @@ extern "C" {
 
     #[no_mangle]
     fn interactiveReceiveData(mm: *mut modesMessage) -> *mut aircraft; // noport
-
-    #[no_mangle]
-    fn displayModesMessage(mm: *mut modesMessage); // noport
 }
 
 // const MODES_DEFAULT_PPM: c_int = 52;
@@ -60,6 +59,27 @@ const MODES_ICAO_CACHE_LEN: u32 = 1024; // Value must be a power of two
 const MODES_ICAO_CACHE_TTL: u64 = 60; // Time to live of cached addresses
 const MODES_UNIT_FEET: c_int = 0;
 const MODES_UNIT_METERS: c_int = 1;
+
+const MODES_ACFLAGS_LATLON_VALID: c_int = 1 << 0; // Aircraft Lat/Lon is decoded
+const MODES_ACFLAGS_ALTITUDE_VALID: c_int = 1 << 1; // Aircraft altitude is known
+const MODES_ACFLAGS_HEADING_VALID: c_int = 1 << 2; // Aircraft heading is known
+const MODES_ACFLAGS_SPEED_VALID: c_int = 1 << 3; // Aircraft speed is known
+const MODES_ACFLAGS_VERTRATE_VALID: c_int = 1 << 4; // Aircraft vertical rate is known
+                                                    // const MODES_ACFLAGS_SQUAWK_VALID: c_int = 1 << 5; // Aircraft Mode A Squawk is known
+                                                    // const MODES_ACFLAGS_CALLSIGN_VALID: c_int = 1 << 6; // Aircraft Callsign Identity
+const MODES_ACFLAGS_EWSPEED_VALID: c_int = 1 << 7; // Aircraft East West Speed is known
+const MODES_ACFLAGS_NSSPEED_VALID: c_int = 1 << 8; // Aircraft North South Speed is known
+                                                   // const MODES_ACFLAGS_AOG: c_int = 1 << 9; // Aircraft is On the Ground
+                                                   // const MODES_ACFLAGS_LLEVEN_VALID: c_int = 1 << 10; // Aircraft Even Lot/Lon is known
+                                                   // const MODES_ACFLAGS_LLODD_VALID: c_int = 1 << 11; // Aircraft Odd Lot/Lon is known
+                                                   // const MODES_ACFLAGS_AOG_VALID: c_int = 1 << 12; // MODES_ACFLAGS_AOG is valid
+                                                   // const MODES_ACFLAGS_FS_VALID: c_int = 1 << 13; // Aircraft Flight Status is known
+                                                   // const MODES_ACFLAGS_NSEWSPD_VALID: c_int = 1 << 14; // Aircraft EW and NS Speed is known
+                                                   // const MODES_ACFLAGS_LATLON_REL_OK: c_int = 1 << 15; // Indicates it's OK to do a relative CPR
+
+// const MODES_ACFLAGS_LLEITHER_VALID: c_int = MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID;
+// const MODES_ACFLAGS_LLBOTH_VALID: c_int = MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID;
+// const MODES_ACFLAGS_AOG_GROUND: c_int = MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
 
 const MODES_DEBUG_DEMOD: c_int = 1 << 0;
 const MODES_DEBUG_DEMODERR: c_int = 1 << 1;
@@ -872,6 +892,659 @@ pub unsafe extern "C" fn decodeModesMessageImpl(
     };
 }
 
+// This function gets a decoded Mode S Message and prints it on the screen
+// in a human readable format.
+//
+#[no_mangle]
+pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modesMessage) {
+    let mut j: c_int;
+
+    // Handle only addresses mode first.
+    if (*Modes).onlyaddr != 0 {
+        println!("{:06x}", (*mm).addr);
+        return;
+        // Enough for --onlyaddr mode
+    }
+
+    // Show the raw message.
+    if (*Modes).mlat != 0 && (*mm).timestampMsg != 0 {
+        print!("@"); // Provide data to the reader ASAP
+        let pTimeStamp = &mut (*mm).timestampMsg as *mut u64 as *mut c_uchar;
+        j = 5 as c_int;
+        while j >= 0 as c_int {
+            print!("{:02X}", *pTimeStamp.offset(j as isize) as c_int);
+            j -= 1
+        }
+    } else {
+        print!("*");
+    }
+
+    j = 0 as c_int;
+    while j < (*mm).msgbits / 8 as c_int {
+        print!("{:02x}", (*mm).msg[j as usize] as c_int);
+        j += 1
+    }
+    println!(";");
+
+    if (*Modes).raw != 0 {
+        // fflush(stdout);
+        let _ = io::stdout().flush();
+        return;
+        // Enough for --raw mode
+    }
+
+    if (*mm).msgtype < 32 as c_int {
+        println!(
+            "CRC: {:06x} ({})",
+            (*mm).crc as c_int,
+            if (*mm).crcok != 0 { "ok" } else { "wrong" }
+        );
+    }
+
+    if (*mm).correctedbits != 0 as c_int {
+        println!("No. of bit errors fixed: {}", (*mm).correctedbits);
+    }
+
+    if (*mm).msgtype == 0 as c_int {
+        // DF 0
+        println!("DF 0: Short Air-Air Surveillance.");
+        println!(
+            "  VS             : {}",
+            if (*mm).msg[0 as c_int as usize] as c_int & 0x4 as c_int != 0 {
+                "Ground"
+            } else {
+                "Airborne"
+            }
+        );
+        println!(
+            "  CC             : {}",
+            ((*mm).msg[0 as c_int as usize] as c_int & 0x2 as c_int) >> 1 as c_int
+        );
+        println!(
+            "  SL             : {}",
+            ((*mm).msg[1 as c_int as usize] as c_int & 0xe0 as c_int) >> 5 as c_int
+        );
+        println!(
+            "  Altitude       : {} {}",
+            (*mm).altitude,
+            if (*mm).unit == MODES_UNIT_METERS {
+                "meters"
+            } else {
+                "feet"
+            }
+        );
+        println!("  ICAO Address   : {:06x}", (*mm).addr);
+    } else if (*mm).msgtype == 4 as c_int || (*mm).msgtype == 20 as c_int {
+        println!(
+            "DF {}: {}, Altitude Reply.",
+            (*mm).msgtype,
+            if (*mm).msgtype == 4 as c_int {
+                "Surveillance"
+            } else {
+                "Comm-B"
+            }
+        );
+        println!("  Flight Status  : {}", FLIGHT_STATUSES[(*mm).fs as usize]);
+        println!(
+            "  DR             : {}",
+            (*mm).msg[1 as c_int as usize] as c_int >> 3 as c_int & 0x1f as c_int
+        );
+        println!(
+            "  UM             : {}",
+            ((*mm).msg[1 as c_int as usize] as c_int & 7 as c_int) << 3 as c_int
+                | (*mm).msg[2 as c_int as usize] as c_int >> 5 as c_int
+        );
+        println!(
+            "  Altitude       : {} {}",
+            (*mm).altitude,
+            if (*mm).unit == MODES_UNIT_METERS {
+                "meters"
+            } else {
+                "feet"
+            }
+        );
+        println!("  ICAO Address   : {:06x}", (*mm).addr);
+        if (*mm).msgtype == 20 as c_int {
+            println!(
+                "  Comm-B BDS     : {:x}",
+                (*mm).msg[4 as c_int as usize] as c_int
+            );
+            // Decode the extended squitter message
+            if (*mm).msg[4 as c_int as usize] as c_int == 0x20 as c_int {
+                // BDS 2,0 Aircraft identification
+                println!(
+                    "    BDS 2,0 Aircraft Identification : {}",
+                    CStr::from_ptr((*mm).flight.as_ptr())
+                        .to_str()
+                        .unwrap_or("{invalid}")
+                );
+                /*
+                            } else if ( mm->msg[4]       == 0x10) { // BDS 1,0 Datalink Capability report
+                                print!("    BDS 1,0 Datalink Capability report\n");
+
+                            } else if ( mm->msg[4]       == 0x30) { // BDS 3,0 ACAS Active Resolution Advisory
+                                print!("    BDS 3,0 ACAS Active Resolution Advisory\n");
+
+                            } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergency/Priority Status
+                                print!("    BDS 6,1 Emergency/Priority Status\n");
+
+                            } else if ((mm->msg[4] >> 3) ==   29) { // BDS 6,2 Target State and Status
+                                print!("    BDS 6,2 Target State and Status\n");
+
+                            } else if ((mm->msg[4] >> 3) ==   31) { // BDS 6,5 Extended Squitter Aircraft Operational Status
+                                print!("    BDS 6,5 Aircraft Operational Status\n");
+                */
+            }
+        }
+    } else if (*mm).msgtype == 5 as c_int || (*mm).msgtype == 21 as c_int {
+        println!(
+            "DF {}: {}, Identity Reply.",
+            (*mm).msgtype,
+            if (*mm).msgtype == 5 as c_int {
+                "Surveillance"
+            } else {
+                "Comm-B"
+            }
+        );
+        println!("  Flight Status  : {}", FLIGHT_STATUSES[(*mm).fs as usize]);
+        println!(
+            "  DR             : {}",
+            (*mm).msg[1 as c_int as usize] as c_int >> 3 as c_int & 0x1f as c_int
+        );
+        println!(
+            "  UM             : {}",
+            ((*mm).msg[1 as c_int as usize] as c_int & 7 as c_int) << 3 as c_int
+                | (*mm).msg[2 as c_int as usize] as c_int >> 5 as c_int
+        );
+        println!("  Squawk         : {:04x}", (*mm).modeA);
+        println!("  ICAO Address   : {:06x}", (*mm).addr);
+        if (*mm).msgtype == 21 as c_int {
+            println!(
+                "  Comm-B BDS     : {:x}",
+                (*mm).msg[4 as c_int as usize] as c_int
+            );
+            // Decode the extended squitter message
+            if (*mm).msg[4 as c_int as usize] as c_int == 0x20 as c_int {
+                // BDS 2,0 Aircraft identification
+                println!(
+                    "    BDS 2,0 Aircraft Identification : {}",
+                    CStr::from_ptr((*mm).flight.as_ptr())
+                        .to_str()
+                        .unwrap_or("{invalid}")
+                );
+                /*
+                            } else if ( mm->msg[4]       == 0x10) { // BDS 1,0 Datalink Capability report
+                                print!("    BDS 1,0 Datalink Capability report\n");
+
+                            } else if ( mm->msg[4]       == 0x30) { // BDS 3,0 ACAS Active Resolution Advisory
+                                print!("    BDS 3,0 ACAS Active Resolution Advisory\n");
+
+                            } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergency/Priority Status
+                                print!("    BDS 6,1 Emergency/Priority Status\n");
+
+                            } else if ((mm->msg[4] >> 3) ==   29) { // BDS 6,2 Target State and Status
+                                print!("    BDS 6,2 Target State and Status\n");
+
+                            } else if ((mm->msg[4] >> 3) ==   31) { // BDS 6,5 Extended Squitter Aircraft Operational Status
+                                print!("    BDS 6,5 Aircraft Operational Status\n");
+                */
+            }
+        }
+    } else if (*mm).msgtype == 11 as c_int {
+        // DF 11
+        println!("DF 11: All Call Reply.");
+        println!(
+            "  Capability  : {} ({})",
+            (*mm).ca,
+            CAPABILITIES[(*mm).ca as usize]
+        );
+        println!("  ICAO Address: {:06x}", (*mm).addr);
+        if (*mm).iid > 16 as c_int {
+            println!("  IID         : SI-{:02}", (*mm).iid - 16 as c_int);
+        } else {
+            println!("  IID         : II-{:02}", (*mm).iid);
+        }
+    } else if (*mm).msgtype == 16 as c_int {
+        // DF 16
+        println!("DF 16: Long Air to Air ACAS");
+        println!(
+            "  VS             : {}",
+            if (*mm).msg[0 as c_int as usize] as c_int & 0x4 as c_int != 0 {
+                "Ground"
+            } else {
+                "Airborne"
+            }
+        );
+        println!(
+            "  CC             : {}",
+            ((*mm).msg[0 as c_int as usize] as c_int & 0x2 as c_int) >> 1 as c_int
+        );
+        println!(
+            "  SL             : {}",
+            ((*mm).msg[1 as c_int as usize] as c_int & 0xe0 as c_int) >> 5 as c_int
+        );
+        println!(
+            "  Altitude       : {} {}",
+            (*mm).altitude,
+            if (*mm).unit == MODES_UNIT_METERS {
+                "meters"
+            } else {
+                "feet"
+            }
+        );
+        println!("  ICAO Address   : {:06x}", (*mm).addr);
+    } else if (*mm).msgtype == 17 as c_int {
+        // DF 17
+        println!("DF 17: ADS-B message.");
+        println!(
+            "  Capability     : {} ({})",
+            (*mm).ca,
+            CAPABILITIES[(*mm).ca as usize]
+        );
+        println!("  ICAO Address   : {:06x}", (*mm).addr);
+        println!("  Extended Squitter  Type: {}", (*mm).metype);
+        println!("  Extended Squitter  Sub : {}", (*mm).mesub);
+        println!(
+            "  Extended Squitter  Name: {}",
+            getMEDescription((*mm).metype, (*mm).mesub)
+        );
+
+        // Decode the extended squitter message
+        if (*mm).metype >= 1 as c_int && (*mm).metype <= 4 as c_int {
+            // Aircraft identification
+            println!(
+                "    Aircraft Type  : {}{}",
+                std::char::from_u32('A' as u32 + 4 - (*mm).metype as u32).unwrap_or('?'),
+                (*mm).mesub
+            );
+            println!(
+                "    Identification : {}",
+                CStr::from_ptr((*mm).flight.as_ptr())
+                    .to_str()
+                    .unwrap_or("{invalid}")
+            );
+        } else if (*mm).metype == 19 as c_int {
+            // Airborne Velocity
+            if (*mm).mesub == 1 as c_int || (*mm).mesub == 2 as c_int {
+                println!(
+                    "    EW status         : {}",
+                    if (*mm).bFlags & MODES_ACFLAGS_EWSPEED_VALID != 0 {
+                        "Valid"
+                    } else {
+                        "Unavailable"
+                    }
+                );
+                println!("    EW velocity       : {}", (*mm).ew_velocity);
+                println!(
+                    "    NS status         : {}",
+                    if (*mm).bFlags & MODES_ACFLAGS_NSSPEED_VALID != 0 {
+                        "Valid"
+                    } else {
+                        "Unavailable"
+                    }
+                );
+                println!("    NS velocity       : {}", (*mm).ns_velocity);
+                println!(
+                    "    Vertical status   : {}",
+                    if (*mm).bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                        "Valid"
+                    } else {
+                        "Unavailable"
+                    }
+                );
+                println!(
+                    "    Vertical rate src : {}",
+                    (*mm).msg[8 as c_int as usize] as c_int >> 4 as c_int & 1 as c_int
+                );
+                println!("    Vertical rate     : {}", (*mm).vert_rate);
+            } else if (*mm).mesub == 3 as c_int || (*mm).mesub == 4 as c_int {
+                println!(
+                    "    Heading status    : {}",
+                    if (*mm).bFlags & MODES_ACFLAGS_HEADING_VALID != 0 {
+                        "Valid"
+                    } else {
+                        "Unavailable"
+                    }
+                );
+                println!("    Heading           : {}", (*mm).heading);
+                println!(
+                    "    Airspeed status   : {}",
+                    if (*mm).bFlags & MODES_ACFLAGS_SPEED_VALID != 0 {
+                        "Valid"
+                    } else {
+                        "Unavailable"
+                    }
+                );
+                println!("    Airspeed          : {}", (*mm).velocity);
+                println!(
+                    "    Vertical status   : {}",
+                    if (*mm).bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                        "Valid"
+                    } else {
+                        "Unavailable"
+                    }
+                );
+                println!(
+                    "    Vertical rate src : {}",
+                    (*mm).msg[8 as c_int as usize] as c_int >> 4 as c_int & 1 as c_int
+                );
+                println!("    Vertical rate     : {}", (*mm).vert_rate);
+            } else {
+                println!(
+                    "    Unrecognized ME subtype: {} subtype: {}",
+                    (*mm).metype,
+                    (*mm).mesub
+                );
+            }
+        } else if (*mm).metype >= 5 as c_int && (*mm).metype <= 22 as c_int {
+            // Airborne position Baro
+            println!(
+                "    F flag   : {}",
+                if (*mm).msg[6 as c_int as usize] as c_int & 0x4 as c_int != 0 {
+                    "odd"
+                } else {
+                    "even"
+                }
+            );
+            println!(
+                "    T flag   : {}",
+                if (*mm).msg[6 as c_int as usize] as c_int & 0x8 as c_int != 0 {
+                    "UTC"
+                } else {
+                    "non-UTC"
+                }
+            );
+            println!("    Altitude : {} feet", (*mm).altitude);
+            if (*mm).bFlags & MODES_ACFLAGS_LATLON_VALID != 0 {
+                println!("    Latitude : {:.6}", (*mm).fLat);
+                println!("    Longitude: {:.6}", (*mm).fLon);
+            } else {
+                println!("    Latitude : {} (not decoded)", (*mm).raw_latitude);
+                println!("    Longitude: {} (not decoded)", (*mm).raw_longitude);
+            }
+        } else if (*mm).metype == 28 as c_int {
+            // Extended Squitter Aircraft Status
+            if (*mm).mesub == 1 as c_int {
+                println!(
+                    "    Emergency State: {}",
+                    EMERGENCY_STATES[(((*mm).msg[5 as c_int as usize] as c_int & 0xe0 as c_int)
+                        >> 5 as c_int) as usize]
+                );
+                println!("    Squawk: {:04x}", (*mm).modeA);
+            } else {
+                println!(
+                    "    Unrecognized ME subtype: {} subtype: {}",
+                    (*mm).metype,
+                    (*mm).mesub
+                );
+            }
+        } else if (*mm).metype == 23 as c_int {
+            // Test Message
+            if (*mm).mesub == 7 as c_int {
+                println!("    Squawk: {:04x}", (*mm).modeA);
+            } else {
+                println!(
+                    "    Unrecognized ME subtype: {} subtype: {}",
+                    (*mm).metype,
+                    (*mm).mesub
+                );
+            }
+        } else {
+            println!(
+                "    Unrecognized ME type: {} subtype: {}",
+                (*mm).metype,
+                (*mm).mesub
+            );
+        }
+    } else if (*mm).msgtype == 18 as c_int {
+        // DF 18
+        println!("DF 18: Extended Squitter.");
+        println!(
+            "  Control Field : {} ({})",
+            (*mm).ca,
+            CONTROL_FIELDS[(*mm).ca as usize]
+        );
+        if (*mm).ca == 0 as c_int || (*mm).ca == 1 as c_int || (*mm).ca == 6 as c_int {
+            if (*mm).ca == 1 as c_int {
+                println!("  Other Address : {:06x}", (*mm).addr);
+            } else {
+                println!("  ICAO Address  : {:06x}", (*mm).addr);
+            }
+            println!("  Extended Squitter  Type: {}", (*mm).metype);
+            println!("  Extended Squitter  Sub : {}", (*mm).mesub);
+            println!(
+                "  Extended Squitter  Name: {}",
+                getMEDescription((*mm).metype, (*mm).mesub)
+            );
+
+            // Decode the extended squitter message
+            if (*mm).metype >= 1 as c_int && (*mm).metype <= 4 as c_int {
+                // Aircraft identification
+                println!(
+                    "    Aircraft Type  : {}{}",
+                    std::char::from_u32('A' as u32 + 4 - (*mm).metype as u32).unwrap_or('?'),
+                    (*mm).mesub
+                );
+                println!(
+                    "    Identification : {}",
+                    CStr::from_ptr((*mm).flight.as_ptr())
+                        .to_str()
+                        .unwrap_or("{invalid}")
+                );
+            } else if (*mm).metype == 19 as c_int {
+                // Airborne Velocity
+                if (*mm).mesub == 1 as c_int || (*mm).mesub == 2 as c_int {
+                    println!(
+                        "    EW status         : {}",
+                        if (*mm).bFlags & MODES_ACFLAGS_EWSPEED_VALID != 0 {
+                            "Valid"
+                        } else {
+                            "Unavailable"
+                        }
+                    );
+                    println!("    EW velocity       : {}", (*mm).ew_velocity);
+                    println!(
+                        "    NS status         : {}",
+                        if (*mm).bFlags & MODES_ACFLAGS_NSSPEED_VALID != 0 {
+                            "Valid"
+                        } else {
+                            "Unavailable"
+                        }
+                    );
+                    println!("    NS velocity       : {}", (*mm).ns_velocity);
+                    println!(
+                        "    Vertical status   : {}",
+                        if (*mm).bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                            "Valid"
+                        } else {
+                            "Unavailable"
+                        }
+                    );
+                    println!(
+                        "    Vertical rate src : {}",
+                        (*mm).msg[8 as c_int as usize] as c_int >> 4 as c_int & 1 as c_int
+                    );
+                    println!("    Vertical rate     : {}", (*mm).vert_rate);
+                } else if (*mm).mesub == 3 as c_int || (*mm).mesub == 4 as c_int {
+                    println!(
+                        "    Heading status    : {}",
+                        if (*mm).bFlags & MODES_ACFLAGS_HEADING_VALID != 0 {
+                            "Valid"
+                        } else {
+                            "Unavailable"
+                        }
+                    );
+                    println!("    Heading           : {}", (*mm).heading);
+                    println!(
+                        "    Airspeed status   : {}",
+                        if (*mm).bFlags & MODES_ACFLAGS_SPEED_VALID != 0 {
+                            "Valid"
+                        } else {
+                            "Unavailable"
+                        }
+                    );
+                    println!("    Airspeed          : {}", (*mm).velocity);
+                    println!(
+                        "    Vertical status   : {}",
+                        if (*mm).bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                            "Valid"
+                        } else {
+                            "Unavailable"
+                        }
+                    );
+                    println!(
+                        "    Vertical rate src : {}",
+                        (*mm).msg[8 as c_int as usize] as c_int >> 4 as c_int & 1 as c_int
+                    );
+                    println!("    Vertical rate     : {}", (*mm).vert_rate);
+                } else {
+                    println!(
+                        "    Unrecognized ME subtype: {} subtype: {}",
+                        (*mm).metype,
+                        (*mm).mesub
+                    );
+                }
+            } else if (*mm).metype >= 5 as c_int && (*mm).metype <= 22 as c_int {
+                // Ground or Airborne position, Baro or GNSS
+                println!(
+                    "    F flag   : {}",
+                    if (*mm).msg[6 as c_int as usize] as c_int & 0x4 as c_int != 0 {
+                        "odd"
+                    } else {
+                        "even"
+                    }
+                );
+                println!(
+                    "    T flag   : {}",
+                    if (*mm).msg[6 as c_int as usize] as c_int & 0x8 as c_int != 0 {
+                        "UTC"
+                    } else {
+                        "non-UTC"
+                    }
+                );
+                println!("    Altitude : {} feet", (*mm).altitude);
+                if (*mm).bFlags & MODES_ACFLAGS_LATLON_VALID != 0 {
+                    println!("    Latitude : {}", (*mm).fLat);
+                    println!("    Longitude: {}", (*mm).fLon);
+                } else {
+                    println!("    Latitude : {} (not decoded)", (*mm).raw_latitude);
+                    println!("    Longitude: {} (not decoded)", (*mm).raw_longitude);
+                }
+            } else {
+                println!(
+                    "    Unrecognized ME type: {} subtype: {}",
+                    (*mm).metype,
+                    (*mm).mesub
+                );
+            }
+        }
+    } else if (*mm).msgtype == 19 as c_int {
+        // DF 19
+        println!("DF 19: Military Extended Squitter.");
+    } else if (*mm).msgtype == 22 as c_int {
+        // DF 22
+        println!("DF 22: Military Use.");
+    } else if (*mm).msgtype == 24 as c_int {
+        // DF 24
+        println!("DF 24: Comm D Extended Length Message.");
+    } else if (*mm).msgtype == 32 as c_int {
+        // DF 32 is special code we use for Mode A/C
+        println!("SSR : Mode A/C Reply.");
+        if (*mm).fs & 0x80 as c_int != 0 {
+            println!("  Mode A : {:04x} IDENT", (*mm).modeA);
+        } else {
+            println!("  Mode A : {:04x}", (*mm).modeA);
+            if (*mm).bFlags & MODES_ACFLAGS_ALTITUDE_VALID != 0 {
+                println!("  Mode C : {} feet", (*mm).altitude);
+            }
+        }
+    } else {
+        println!("DF {}: Unknown DF Format.", (*mm).msgtype);
+    }
+    println!();
+}
+
+// Capability table
+static CAPABILITIES: [&str; 8] = [
+    "Level 1 (Surveillance Only)",
+    "Level 2 (DF0,4,5,11)",
+    "Level 3 (DF0,4,5,11,20,21)",
+    "Level 4 (DF0,4,5,11,20,21,24)",
+    "Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is on ground)",
+    "Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is airborne)",
+    "Level 2+3+4 (DF0,4,5,11,20,21,24,code7)",
+    "Level 7 ???",
+];
+
+// DF 18 Control field table.
+static CONTROL_FIELDS: [&str; 8] = [
+    "ADS-B ES/NT device with ICAO 24-bit address",
+    "ADS-B ES/NT device with other address",
+    "Fine format TIS-B",
+    "Coarse format TIS-B",
+    "TIS-B management message",
+    "TIS-B relay of ADS-B message with other address",
+    "ADS-B rebroadcast using DF-17 message format",
+    "Reserved",
+];
+
+// Flight status table
+static FLIGHT_STATUSES: [&str; 8] = [
+    "Normal, Airborne",
+    "Normal, On the ground",
+    "ALERT,  Airborne",
+    "ALERT,  On the ground",
+    "ALERT & Special Position Identification. Airborne or Ground",
+    "Special Position Identification. Airborne or Ground",
+    "Value 6 is not assigned",
+    "Value 7 is not assigned",
+];
+
+// Emergency state table
+// from https://www.ll.mit.edu/mission/aviation/publications/publication-files/atc-reports/Grappel_2007_ATC-334_WW-15318.pdf
+// and 1090-DO-260B_FRAC
+#[no_mangle]
+static EMERGENCY_STATES: [&str; 8] = [
+    "No emergency",
+    "General emergency (squawk 7700)",
+    "Lifeguard/Medical",
+    "Minimum fuel",
+    "No communications (squawk 7600)",
+    "Unlawful interference (squawk 7500)",
+    "Downed Aircraft",
+    "Reserved",
+];
+
+fn getMEDescription(metype: c_int, mesub: c_int) -> &'static str {
+    if metype >= 1 && metype <= 4 {
+        "Aircraft Identification and Category"
+    } else if metype >= 5 && metype <= 8 {
+        "Surface Position"
+    } else if metype >= 9 && metype <= 18 {
+        "Airborne Position (Baro Altitude)"
+    } else if metype == 19 && mesub >= 1 && mesub <= 4 {
+        "Airborne Velocity"
+    } else if metype >= 20 && metype <= 22 {
+        "Airborne Position (GNSS Height)"
+    } else if metype == 23 && mesub == 0 {
+        "Test Message"
+    } else if metype == 23 && mesub == 7 {
+        "Test Message -- Squawk"
+    } else if metype == 24 && mesub == 1 {
+        "Surface System Status"
+    } else if metype == 28 && mesub == 1 {
+        "Extended Squitter Aircraft Status (Emergency)"
+    } else if metype == 28 && mesub == 2 {
+        "Extended Squitter Aircraft Status (1090ES TCAS RA)"
+    } else if metype == 29 && (mesub == 0 || mesub == 1) {
+        "Target State and Status Message"
+    } else if metype == 31 && (mesub == 0 || mesub == 1) {
+        "Aircraft Operational Status Message"
+    } else {
+        "Unknown"
+    }
+}
+
 // Turn I/Q samples pointed by Modes.data into the magnitude vector
 // pointed by Modes.magnitude.
 //
@@ -1609,7 +2282,7 @@ pub unsafe extern "C" fn useModesMessage(Modes: *mut modes, mm: *mut modesMessag
 
         // In non-interactive non-quiet mode, display messages on standard output
         if (*Modes).interactive == 0 && (*Modes).quiet == 0 {
-            displayModesMessage(mm);
+            displayModesMessage(Modes, mm);
         }
 
         // Feed output clients
