@@ -28,7 +28,7 @@ extern "C" {
 // const MODES_DEFAULT_FREQ: c_int = 1090000000;
 // const MODES_DEFAULT_WIDTH: c_int = 1000;
 // const MODES_DEFAULT_HEIGHT: c_int = 700;
-// const MODES_ASYNC_BUF_NUMBER: usize = 16;
+pub(crate) const MODES_ASYNC_BUF_NUMBER: usize = 16;
 const MODES_ASYNC_BUF_SIZE: usize = 16 * 16384; // 256k
 const MODES_ASYNC_BUF_SAMPLES: usize = MODES_ASYNC_BUF_SIZE / 2; // Each sample is 2 bytes
                                                                  // const MODES_AUTO_GAIN: c_int = -100; // Use automatic gain
@@ -37,12 +37,12 @@ const MODES_MSG_SQUELCH_LEVEL: c_int = 0x02FF; // Average signal strength limit
 const MODES_MSG_ENCODER_ERRS: c_int = 3; // Maximum number of encoding errors
 
 // When changing, change also fixBitErrors() and modesInitErrorTable() !!
-const MODES_MAX_BITERRORS: c_int = 2; // Global max for fixable bit erros
+pub(crate) const MODES_MAX_BITERRORS: usize = 2; // Global max for fixable bit errors
 
 const MODES_PREAMBLE_US: usize = 8; // microseconds = bits
 const MODES_PREAMBLE_SAMPLES: usize = MODES_PREAMBLE_US * 2;
 const MODES_PREAMBLE_SIZE: usize = MODES_PREAMBLE_SAMPLES * mem::size_of::<u16>();
-const MODES_LONG_MSG_BYTES: usize = 14;
+pub(crate) const MODES_LONG_MSG_BYTES: usize = 14;
 const MODES_SHORT_MSG_BYTES: usize = 7;
 const MODES_LONG_MSG_BITS: c_int = MODES_LONG_MSG_BYTES as c_int * 8;
 const MODES_SHORT_MSG_BITS: c_int = MODES_SHORT_MSG_BYTES as c_int * 8;
@@ -2088,7 +2088,8 @@ pub unsafe extern "C" fn detectModeSImpl(
                             } else if use_correction != 0 {
                                 (*Modes).stat_ph_badcrc = (*Modes).stat_ph_badcrc.wrapping_add(1);
                                 (*Modes).stat_ph_fixed = (*Modes).stat_ph_fixed.wrapping_add(1);
-                                if mm.correctedbits != 0 && mm.correctedbits <= MODES_MAX_BITERRORS
+                                if mm.correctedbits != 0
+                                    && mm.correctedbits <= MODES_MAX_BITERRORS as c_int
                                 {
                                     (*Modes).stat_ph_bit_fix[(mm.correctedbits - 1) as usize] =
                                         (*Modes).stat_ph_bit_fix[(mm.correctedbits - 1) as usize]
@@ -2097,7 +2098,8 @@ pub unsafe extern "C" fn detectModeSImpl(
                             } else {
                                 (*Modes).stat_badcrc = (*Modes).stat_badcrc.wrapping_add(1);
                                 (*Modes).stat_fixed = (*Modes).stat_fixed.wrapping_add(1);
-                                if mm.correctedbits != 0 && mm.correctedbits <= MODES_MAX_BITERRORS
+                                if mm.correctedbits != 0
+                                    && mm.correctedbits <= MODES_MAX_BITERRORS as c_int
                                 {
                                     (*Modes).stat_bit_fix[(mm.correctedbits - 1) as usize] =
                                         (*Modes).stat_bit_fix[(mm.correctedbits - 1) as usize]
