@@ -26,8 +26,30 @@ const MODEAC_MSG_SQUELCH_LEVEL: c_int = 0x07FF; // Average signal strength limit
 //
 #[no_mangle]
 pub static mut ModeABitTable: [u32; 24] = [
-    0, 0x10, 0x1000, 0x20, 0x2000, 0x40, 0x4000, 0x40000000, 0x100, 0x1, 0x200, 0x2, 0x400, 0x4, 0,
-    0x8000000, 0x4000000, 0x80, 0x2000000, 0x1000000, 0x800000, 0x400000, 0x200000, 0x100000,
+    0x00000000, // F1 = 1
+    0x00000010, // C1
+    0x00001000, // A1
+    0x00000020, // C2
+    0x00002000, // A2
+    0x00000040, // C4
+    0x00004000, // A4
+    0x40000000, // xx = 0  Set bit 30 if we see this high
+    0x00000100, // B1
+    0x00000001, // D1
+    0x00000200, // B2
+    0x00000002, // D2
+    0x00000400, // B4
+    0x00000004, // D4
+    0x00000000, // F2 = 1
+    0x08000000, // xx = 0  Set bit 27 if we see this high
+    0x04000000, // xx = 0  Set bit 26 if we see this high
+    0x00000080, // SPI
+    0x02000000, // xx = 0  Set bit 25 if we see this high
+    0x01000000, // xx = 0  Set bit 24 if we see this high
+    0x00800000, // xx = 0  Set bit 23 if we see this high
+    0x00400000, // xx = 0  Set bit 22 if we see this high
+    0x00200000, // xx = 0  Set bit 21 if we see this high
+    0x00100000, // xx = 0  Set bit 20 if we see this high
 ];
 
 // This table is used to produce an error variable called ModeAErrs.Each
@@ -35,14 +57,35 @@ pub static mut ModeABitTable: [u32; 24] = [
 // expected range, then the value in this table is or-ed into ModeAErrs.
 //
 // At the end of message processing, ModeAErrs will indicate if we saw
-// any inter-bit anomolies, and the bits that are set will show which
+// any inter-bit anomalies, and the bits that are set will show which
 // bits had them.
 //
 #[no_mangle]
 pub static mut ModeAMidTable: [u32; 24] = [
-    0x80000000, 0x10, 0x1000, 0x20, 0x2000, 0x40, 0x4000, 0x40000000, 0x100, 0x1, 0x200, 0x2,
-    0x400, 0x4, 0x20000000, 0x8000000, 0x4000000, 0x80, 0x2000000, 0x1000000, 0x800000, 0x400000,
-    0x200000, 0x100000,
+    0x80000000, // F1 = 1  Set bit 31 if we see F1_C1  error
+    0x00000010, // C1      Set bit  4 if we see C1_A1  error
+    0x00001000, // A1      Set bit 12 if we see A1_C2  error
+    0x00000020, // C2      Set bit  5 if we see C2_A2  error
+    0x00002000, // A2      Set bit 13 if we see A2_C4  error
+    0x00000040, // C4      Set bit  6 if we see C3_A4  error
+    0x00004000, // A4      Set bit 14 if we see A4_xx  error
+    0x40000000, // xx = 0  Set bit 30 if we see xx_B1  error
+    0x00000100, // B1      Set bit  8 if we see B1_D1  error
+    0x00000001, // D1      Set bit  0 if we see D1_B2  error
+    0x00000200, // B2      Set bit  9 if we see B2_D2  error
+    0x00000002, // D2      Set bit  1 if we see D2_B4  error
+    0x00000400, // B4      Set bit 10 if we see B4_D4  error
+    0x00000004, // D4      Set bit  2 if we see D4_F2  error
+    0x20000000, // F2 = 1  Set bit 29 if we see F2_xx  error
+    0x08000000, // xx = 0  Set bit 27 if we see xx_xx  error
+    0x04000000, // xx = 0  Set bit 26 if we see xx_SPI error
+    0x00000080, // SPI     Set bit 15 if we see SPI_xx error
+    0x02000000, // xx = 0  Set bit 25 if we see xx_xx  error
+    0x01000000, // xx = 0  Set bit 24 if we see xx_xx  error
+    0x00800000, // xx = 0  Set bit 23 if we see xx_xx  error
+    0x00400000, // xx = 0  Set bit 22 if we see xx_xx  error
+    0x00200000, // xx = 0  Set bit 21 if we see xx_xx  error
+    0x00100000, // xx = 0  Set bit 20 if we see xx_xx  error
 ];
 
 // The "off air" format is,,
@@ -72,13 +115,15 @@ pub static mut ModeAMidTable: [u32; 24] = [
 // in two adjacent samples must be from the same pulse, so we can simply
 // add the values together..
 //
+#[rustfmt::skip]
 #[no_mangle]
 pub unsafe extern "C" fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
-    let mut ModeABits = 0 as c_int;
-    let mut ModeAErrs = 0 as c_int;
+    let mut ModeABits = 0;
+    let mut ModeAErrs = 0;
     let mut bit: c_int;
-    let mut lastSpace = 0 as c_int;
+    let mut lastSpace = 0;
     let n3: c_int;
+
     // m[0] contains the energy from    0 ->  499 nS
     // m[1] contains the energy from  500 ->  999 nS
     // m[2] contains the energy from 1000 -> 1499 nS
@@ -100,24 +145,32 @@ pub unsafe extern "C" fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_in
     // we're looking for
     //
     // 0 - 0.5 - 0.5 - 0.
-    let m0 = *m.offset(0 as c_int as isize) as c_int;
-    let m1 = *m.offset(1 as c_int as isize) as c_int;
+
+    let m0 = *m.offset(0) as c_int;
+    let m1 = *m.offset(1) as c_int;
+
     if m0 >= m1 {
         // m1 *must* be bigger than m0 for this to be F1
-        return 0 as c_int;
+        return 0;
     }
-    let mut m2 = *m.offset(2 as c_int as isize) as c_int;
-    let mut m3 = *m.offset(3 as c_int as isize) as c_int;
-    //
+
+    let mut m2 = *m.offset(2) as c_int;
+    let mut m3 = *m.offset(3) as c_int;
+
     // if (m2 <= m0), then assume the sample bob on (Phase == 0), so don't look at m3
     if m2 <= m0 || m2 < m3 {
         m3 = m2;
         m2 = m0
     }
-    if m3 >= m1 || m0 > m2 || m3 > m2 {
-        // m2 can be equal to m3 if ( 0,1,0,0 )
-        return 0 as c_int;
+
+    // #[rustfmt::skip]
+    if m3 >= m1     // m1 must be bigger than m3
+        || m0 > m2 // m2 can be equal to m0 if ( 0,1,0,0 )
+        || m3 > m2 // m2 can be equal to m3 if ( 0,1,0,0 )
+    {
+        return 0;
     }
+
     // m0 = noise
     // m1 = noise + (signal *    X))
     // m2 = noise + (signal * (1-X))
@@ -127,36 +180,42 @@ pub unsafe extern "C" fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_in
     //      signal = (m1 + m2) - ((m0 + m3) * 2)
     //      noise  = (m0 + m3) / 2
     //
-    let F1_sig = m1 + m2 - (m0 + m3 << 1 as c_int);
-    let F1_noise = m0 + m3 >> 1 as c_int;
-    if F1_sig < MODEAC_MSG_SQUELCH_LEVEL || F1_sig < F1_noise << 2 as c_int {
-        // minimum allowable Sig/Noise ratio 4:1
-        return 0 as c_int;
+    let F1_sig = m1 + m2 - (m0 + m3 << 1);
+    let F1_noise = m0 + m3 >> 1;
+
+    // #[rustfmt::skip]
+    if F1_sig < MODEAC_MSG_SQUELCH_LEVEL // minimum required  F1 signal amplitude
+        || F1_sig < F1_noise << 2        // minimum allowable Sig/Noise ratio 4:1
+    {
+        return 0;
     }
+
     // If we get here then we have a potential F1, so look for an equally valid F2 20.3uS later
     //
-    // Our F1 is centered somewhere between samples m[1] and m[2]. We can guestimate where F2 is
+    // Our F1 is centered somewhere between samples m[1] and m[2]. We can guesstimate where F2 is
     // by comparing the ratio of m1 and m2, and adding on 20.3 uS (40.6 samples)
     //
-    let mut mPhase = m2 * 20 as c_int / (m1 + m2);
-    let mut byte = (mPhase + 812 as c_int) / 20 as c_int;
+    let mut mPhase = m2 * 20 / (m1 + m2);
+    let mut byte = (mPhase + 812) / 20;
     let fresh0 = byte;
     byte = byte + 1;
     let n0 = *m.offset(fresh0 as isize) as c_int;
     let fresh1 = byte;
     byte = byte + 1;
     let n1 = *m.offset(fresh1 as isize) as c_int;
+
     if n0 >= n1 {
         // n1 *must* be bigger than n0 for this to be F2
-        return 0 as c_int;
+        return 0;
     }
+
     let fresh2 = byte;
     byte = byte + 1;
     let mut n2 = *m.offset(fresh2 as isize) as c_int;
     //
     // if the sample bob on (Phase == 0), don't look at n3
     //
-    if (mPhase + 812 as c_int) % 20 as c_int != 0 {
+    if (mPhase + 812) % 20 != 0 {
         let fresh3 = byte;
         byte = byte + 1;
         n3 = *m.offset(fresh3 as isize) as c_int
@@ -164,58 +223,72 @@ pub unsafe extern "C" fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_in
         n3 = n2;
         n2 = n0
     }
-    if n3 >= n1 || n0 > n2 || n3 > n2 {
-        // n2 can be equal to n3 ( 0,1,0,0 )
-        return 0 as c_int;
+
+    // #[rustfmt::skip]
+    if n3 >= n1    // n1 must be bigger than n3
+        || n0 > n2 // n2 can be equal to n0 ( 0,1,0,0 )
+        || n3 > n2 // n2 can be equal to n3 ( 0,1,0,0 )
+    {
+        return 0;
     }
-    let F2_sig = n1 + n2 - (n0 + n3 << 1 as c_int);
-    let F2_noise = n0 + n3 >> 1 as c_int;
-    if F2_sig < MODEAC_MSG_SQUELCH_LEVEL || F2_sig < F2_noise << 2 as c_int {
-        // maximum allowable Sig/Noise ratio 4:1
-        return 0 as c_int;
-    } // 1/2
-    let mut fSig = F1_sig + F2_sig >> 1 as c_int;
-    let fNoise = F1_noise + F2_noise >> 1 as c_int;
-    let fLoLo = fNoise + (fSig >> 2 as c_int);
-    let fLevel = fNoise + (fSig >> 1 as c_int);
-    let mut lastBitWasOne = 1 as c_int;
+
+    let F2_sig = n1 + n2 - (n0 + n3 << 1);
+    let F2_noise = n0 + n3 >> 1;
+
+    // #[rustfmt::skip]
+    if F2_sig < MODEAC_MSG_SQUELCH_LEVEL // minimum required  F2 signal amplitude
+        || F2_sig < F2_noise << 2 // maximum allowable Sig/Noise ratio 4:1
+    {
+        return 0;
+    }
+
+    let mut fSig = F1_sig + F2_sig >> 1;
+    let fNoise = F1_noise + F2_noise >> 1;
+    let fLoLo = fNoise + (fSig >> 2); // 1/2
+    let fLevel = fNoise + (fSig >> 1);
+    let mut lastBitWasOne = 1;
     let mut lastBit = F1_sig;
     //
     // Now step by a half ModeA bit, 0.725nS, which is 1.45 samples, which is 29/20
     // No need to do bit 0 because we've already selected it as a valid F1
     // Do several bits past the SPI to increase error rejection
     //
-    let mut j = 1 as c_int; //    add in the second sample's energy
-    mPhase += 29 as c_int;
+    let mut j = 1; //    add in the second sample's energy
+    mPhase += 29;
     while j < 48 as c_int {
-        byte = 1 as c_int + mPhase / 20 as c_int;
+        byte = 1 + mPhase / 20;
+
         let mut thisSample = *m.offset(byte as isize) as c_int - fNoise;
-        if mPhase % 20 as c_int != 0 {
-            // If the bit is split over two samples...
-            thisSample += *m.offset((byte + 1 as c_int) as isize) as c_int - fNoise
+        // If the bit is split over two samples...
+        if mPhase % 20 != 0 {
+            // add in the second sample's energy
+            thisSample += *m.offset((byte + 1) as isize) as c_int - fNoise
         }
+
         // If we're calculating a space value
-        if j & 1 as c_int != 0 {
+        if j & 1 != 0 {
             lastSpace = thisSample
         } else {
             // We're calculating a new bit value
-            bit = j >> 1 as c_int;
+            bit = j >> 1;
             if thisSample >= fLevel {
                 // We're calculating a new bit value, and its a one
                 let fresh4 = bit; // or in the correct bit
                 bit = bit - 1;
                 ModeABits = (ModeABits as c_uint | ModeABitTable[fresh4 as usize]) as c_int;
+
                 if lastBitWasOne != 0 {
                     // This bit is one, last bit was one, so check the last space is somewhere less than one
-                    if lastSpace >= thisSample >> 1 as c_int || lastSpace >= lastBit {
+                    if lastSpace >= thisSample >> 1 || lastSpace >= lastBit {
                         ModeAErrs = (ModeAErrs as c_uint | ModeAMidTable[bit as usize]) as c_int
                     }
-                } else if lastSpace >= thisSample >> 1 as c_int {
+                } else if lastSpace >= thisSample >> 1 {
+                    // This bit,is one, last bit was zero, so check the last space is somewhere less than one
                     ModeAErrs = (ModeAErrs as c_uint | ModeAMidTable[bit as usize]) as c_int
                 }
-                lastBitWasOne = 1 as c_int
+
+                lastBitWasOne = 1;
             } else {
-                // This bit,is one, last bit was zero, so check the last space is somewhere less than one
                 // We're calculating a new bit value, and its a zero
                 if lastBitWasOne != 0 {
                     // This bit is zero, last bit was one, so check the last space is somewhere in between
@@ -223,29 +296,31 @@ pub unsafe extern "C" fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_in
                         ModeAErrs = (ModeAErrs as c_uint | ModeAMidTable[bit as usize]) as c_int
                     }
                 } else if lastSpace >= fLoLo {
+                    // This bit,is zero, last bit was zero, so check the last space is zero too
                     ModeAErrs = (ModeAErrs as c_uint | ModeAMidTable[bit as usize]) as c_int
                 }
-                lastBitWasOne = 0 as c_int
+
+                lastBitWasOne = 0;
             }
-            lastBit = thisSample >> 1 as c_int
+
+            lastBit = thisSample >> 1;
         }
-        mPhase += 29 as c_int;
+
+        mPhase += 29;
         j += 1
     }
-    // This bit,is zero, last bit was zero, so check the last space is zero too
+
     //
     // Output format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
     //
-    if ModeABits < 3 as c_int || ModeABits as c_uint & 0xffff8808 as c_uint != 0 || ModeAErrs != 0 {
-        ModeABits = 0 as c_int;
+    if ModeABits < 3 || ModeABits as c_uint & 0xffff8808 as c_uint != 0 || ModeAErrs != 0 {
+        ModeABits = 0;
         return ModeABits;
     }
-    fSig = fSig + 0x7f as c_int >> 8 as c_int;
-    (*mm).signalLevel = if fSig < 255 as c_int {
-        fSig
-    } else {
-        255 as c_int
-    } as c_uchar;
+
+    fSig = fSig + 0x7f >> 8;
+    (*mm).signalLevel = if fSig < 255 { fSig } else { 255 } as c_uchar;
+
     return ModeABits;
 }
 
