@@ -15,13 +15,13 @@ extern "C" {
     fn modesSendAllClients(service: c_int, msg: *mut c_void, len: c_int); // noport
 
     #[no_mangle]
-    fn dumpRawMessage(descr: *const c_char, msg: *mut c_uchar, m: *mut u16, offset: u32);
+    fn dumpRawMessage(descr: *const c_char, msg: *mut c_uchar, m: *mut u16, offset: u32); // noport
 
     #[no_mangle]
-    fn interactiveReceiveData(mm: *mut modesMessage) -> *mut aircraft;
+    fn interactiveReceiveData(mm: *mut modesMessage) -> *mut aircraft; // noport
 
     #[no_mangle]
-    fn displayModesMessage(mm: *mut modesMessage);
+    fn displayModesMessage(mm: *mut modesMessage); // noport
 }
 
 // const MODES_DEFAULT_PPM: c_int = 52;
