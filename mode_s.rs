@@ -7,15 +7,12 @@ use std::time::SystemTime;
 use std::{mem, ptr, time};
 
 use crate::io::modesQueueOutput;
-use crate::mode_ac::{ModeAToModeC, MODEAC_MSG_SAMPLES};
+use crate::mode_ac::{detectModeA, ModeAToModeC, MODEAC_MSG_SAMPLES};
 use crate::{aircraft, modes, modesMessage};
 
 extern "C" {
     #[no_mangle]
     fn modesSendAllClients(service: c_int, msg: *mut c_void, len: c_int); // noport
-
-    #[no_mangle]
-    fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int;
 
     #[no_mangle]
     fn decodeModeAMessage(mm: *mut modesMessage, ModeA: c_int);
