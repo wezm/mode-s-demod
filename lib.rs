@@ -5,6 +5,7 @@ use std::os::raw::{
     c_ushort, c_void,
 };
 
+mod io;
 mod mode_ac;
 mod mode_s;
 

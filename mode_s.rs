@@ -6,8 +6,29 @@ use std::os::raw::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 use std::time::SystemTime;
 use std::{mem, ptr, time};
 
+use crate::io::modesQueueOutput;
 use crate::mode_ac::ModeAToModeC;
-use crate::{modes, modesMessage};
+use crate::{aircraft, modes, modesMessage};
+
+extern "C" {
+    #[no_mangle]
+    fn modesSendAllClients(service: c_int, msg: *mut c_void, len: c_int);
+
+    #[no_mangle]
+    fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int;
+
+    #[no_mangle]
+    fn decodeModeAMessage(mm: *mut modesMessage, ModeA: c_int);
+
+    #[no_mangle]
+    fn dumpRawMessage(descr: *const c_char, msg: *mut c_uchar, m: *mut u16, offset: u32);
+
+    #[no_mangle]
+    fn interactiveReceiveData(mm: *mut modesMessage) -> *mut aircraft;
+
+    #[no_mangle]
+    fn displayModesMessage(mm: *mut modesMessage);
+}
 
 // const MODES_DEFAULT_PPM: c_int = 52;
 // const MODES_DEFAULT_RATE: c_int = 2000000;
@@ -100,26 +121,6 @@ const MODES_CHECKSUM_TABLE: [u32; 112] = [
     0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
     0x000000, 0x000000, 0x000000, 0x000000,
 ];
-
-extern "C" {
-    #[no_mangle]
-    fn modesSendAllClients(service: c_int, msg: *mut c_void, len: c_int);
-
-    #[no_mangle]
-    fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int;
-
-    #[no_mangle]
-    fn decodeModeAMessage(mm: *mut modesMessage, ModeA: c_int);
-
-    #[no_mangle]
-    fn useModesMessage(mm: *mut modesMessage);
-
-    #[no_mangle]
-    fn dumpRawMessage(descr: *const c_char, msg: *mut c_uchar, m: *mut u16, offset: u32);
-
-    #[no_mangle]
-    fn modesQueueOutput(mm: *mut modesMessage);
-}
 
 //
 //=========================================================================
@@ -1128,7 +1129,7 @@ pub unsafe extern "C" fn detectModeSImpl(
                     decodeModeAMessage(&mut mm, ModeA);
 
                     // Pass data to the next layer
-                    useModesMessage(&mut mm);
+                    useModesMessage(Modes, &mut mm);
                     j += MODEAC_MSG_SAMPLES;
                     (*Modes).stat_ModeAC = (*Modes).stat_ModeAC.wrapping_add(1);
                     current_block_183 = 735147466149431745;
@@ -1529,7 +1530,7 @@ pub unsafe extern "C" fn detectModeSImpl(
                     }
 
                     // Pass data to the next layer
-                    useModesMessage(&mut mm);
+                    useModesMessage(Modes, &mut mm);
                 } else if (*Modes).debug & MODES_DEBUG_DEMODERR != 0 && use_correction != 0 {
                     println!("The following message has {} demod errors", errors);
                     dumpRawMessage(
@@ -1600,9 +1601,39 @@ pub unsafe extern "C" fn detectModeSImpl(
         mm.timestampMsg = (*Modes).timestampBlk;
 
         // Feed output clients
-        modesQueueOutput(&mut mm);
+        modesQueueOutput(Modes, &mut mm);
 
         // Reset the heartbeat counter
+        (*Modes).net_heartbeat_count = 0;
+    };
+}
+
+// When a new message is available, because it was decoded from the RTL device,
+// file, or received in the TCP input port, or any other way we can receive a
+// decoded message, we call this function in order to use the message.
+//
+// Basically this function passes a raw message to the upper layers for further
+// processing and visualization
+//
+#[no_mangle]
+pub unsafe extern "C" fn useModesMessage(Modes: *mut modes, mm: *mut modesMessage) {
+    if (*Modes).check_crc == 0 || (*mm).crcok != 0 || (*mm).correctedbits != 0 {
+        // not checking, ok or fixed
+
+        // Always track aircraft
+        interactiveReceiveData(mm);
+
+        // In non-interactive non-quiet mode, display messages on standard output
+        if (*Modes).interactive == 0 && (*Modes).quiet == 0 {
+            displayModesMessage(mm);
+        }
+
+        // Feed output clients
+        if (*Modes).net != 0 {
+            modesQueueOutput(Modes, mm);
+        }
+
+        // Heartbeat not required whilst we're seeing real messages
         (*Modes).net_heartbeat_count = 0;
     };
 }
