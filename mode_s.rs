@@ -7,12 +7,12 @@ use std::time::SystemTime;
 use std::{mem, ptr, time};
 
 use crate::io::modesQueueOutput;
-use crate::mode_ac::ModeAToModeC;
+use crate::mode_ac::{ModeAToModeC, MODEAC_MSG_SAMPLES};
 use crate::{aircraft, modes, modesMessage};
 
 extern "C" {
     #[no_mangle]
-    fn modesSendAllClients(service: c_int, msg: *mut c_void, len: c_int);
+    fn modesSendAllClients(service: c_int, msg: *mut c_void, len: c_int); // noport
 
     #[no_mangle]
     fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int;
@@ -45,16 +45,6 @@ const MODES_MSG_ENCODER_ERRS: c_int = 3; // Maximum number of encoding errors
 
 // When changing, change also fixBitErrors() and modesInitErrorTable() !!
 const MODES_MAX_BITERRORS: c_int = 2; // Global max for fixable bit erros
-
-const MODEAC_MSG_SAMPLES: u32 = 25 * 2; // include up to the SPI bit
-                                        // const MODEAC_MSG_BYTES: c_int = 2;
-                                        // const MODEAC_MSG_SQUELCH_LEVEL: c_int = 0x07FF; // Average signal strength limit
-                                        // const MODEAC_MSG_FLAG: c_int = 1 << 0;
-                                        // const MODEAC_MSG_MODES_HIT: c_int = 1 << 1;
-                                        // const MODEAC_MSG_MODEA_HIT: c_int = 1 << 2;
-                                        // const MODEAC_MSG_MODEC_HIT: c_int = 1 << 3;
-                                        // const MODEAC_MSG_MODEA_ONLY: c_int = 1 << 4;
-                                        // const MODEAC_MSG_MODEC_OLD: c_int = 1 << 5;
 
 const MODES_PREAMBLE_US: usize = 8; // microseconds = bits
 const MODES_PREAMBLE_SAMPLES: usize = MODES_PREAMBLE_US * 2;
