@@ -483,9 +483,7 @@ pub unsafe extern "C" fn decodeModesMessageImpl(
     bit_errors_ptr: *const errorinfo,
     bit_errors_len: c_int,
 ) {
-    let ais_charset: *mut c_char =
-        b"?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????\x00" as *const u8
-            as *const c_char as *mut c_char;
+    let ais_charset = b"?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????\x00";
 
     // Work on our local copy
     ptr::copy_nonoverlapping(msg, (*mm).msg.as_mut_ptr(), MODES_LONG_MSG_BYTES as usize);
@@ -666,37 +664,28 @@ pub unsafe extern "C" fn decodeModesMessageImpl(
         // Decode the extended squitter message
         if metype >= 1 as c_int && metype <= 4 as c_int {
             // Aircraft Identification and Category
-            let mut chars: u32;
-            (*mm).bFlags |= (1 as c_int) << 6 as c_int;
-            chars = ((*msg.offset(5) as c_int) << 16 as c_int
-                | (*msg.offset(6) as c_int) << 8 as c_int
+            (*mm).bFlags |= 1 << 6;
+            let mut chars = ((*msg.offset(5) as c_int) << 16
+                | (*msg.offset(6) as c_int) << 8
                 | *msg.offset(7) as c_int) as u32;
-            (*mm).flight[3 as c_int as usize] =
-                *ais_charset.offset((chars & 0x3f as c_int as c_uint) as isize);
-            chars = chars >> 6 as c_int;
-            (*mm).flight[2 as c_int as usize] =
-                *ais_charset.offset((chars & 0x3f as c_int as c_uint) as isize);
-            chars = chars >> 6 as c_int;
-            (*mm).flight[1 as c_int as usize] =
-                *ais_charset.offset((chars & 0x3f as c_int as c_uint) as isize);
-            chars = chars >> 6 as c_int;
-            (*mm).flight[0 as c_int as usize] =
-                *ais_charset.offset((chars & 0x3f as c_int as c_uint) as isize);
-            chars = ((*msg.offset(8) as c_int) << 16 as c_int
-                | (*msg.offset(9) as c_int) << 8 as c_int
+            (*mm).flight[3] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            chars = chars >> 6;
+            (*mm).flight[2] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            chars = chars >> 6;
+            (*mm).flight[1] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            chars = chars >> 6;
+            (*mm).flight[0] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            chars = ((*msg.offset(8) as c_int) << 16
+                | (*msg.offset(9) as c_int) << 8
                 | *msg.offset(10) as c_int) as u32;
-            (*mm).flight[7 as c_int as usize] =
-                *ais_charset.offset((chars & 0x3f as c_int as c_uint) as isize);
-            chars = chars >> 6 as c_int;
-            (*mm).flight[6 as c_int as usize] =
-                *ais_charset.offset((chars & 0x3f as c_int as c_uint) as isize);
-            chars = chars >> 6 as c_int;
-            (*mm).flight[5 as c_int as usize] =
-                *ais_charset.offset((chars & 0x3f as c_int as c_uint) as isize);
-            chars = chars >> 6 as c_int;
-            (*mm).flight[4 as c_int as usize] =
-                *ais_charset.offset((chars & 0x3f as c_int as c_uint) as isize);
-            (*mm).flight[8 as c_int as usize] = '\u{0}' as i32 as c_char
+            (*mm).flight[7] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            chars = chars >> 6;
+            (*mm).flight[6] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            chars = chars >> 6;
+            (*mm).flight[5] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            chars = chars >> 6;
+            (*mm).flight[4] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            (*mm).flight[8] = 0;
         } else if metype == 19 as c_int {
             // Airborne Velocity Message
             // Presumably airborne if we get an Airborne Velocity Message
@@ -857,37 +846,28 @@ pub unsafe extern "C" fn decodeModesMessageImpl(
     if (*mm).msgtype == 20 as c_int || (*mm).msgtype == 21 as c_int {
         if *msg.offset(4) as c_int == 0x20 as c_int {
             // Aircraft Identification
-            let mut chars_0: u32;
             (*mm).bFlags |= (1 as c_int) << 6 as c_int;
-            chars_0 = ((*msg.offset(5) as c_int) << 16 as c_int
+            let mut chars_0 = ((*msg.offset(5) as c_int) << 16 as c_int
                 | (*msg.offset(6) as c_int) << 8 as c_int
                 | *msg.offset(7) as c_int) as u32;
-            (*mm).flight[3 as c_int as usize] =
-                *ais_charset.offset((chars_0 & 0x3f as c_int as c_uint) as isize);
-            chars_0 = chars_0 >> 6 as c_int;
-            (*mm).flight[2 as c_int as usize] =
-                *ais_charset.offset((chars_0 & 0x3f as c_int as c_uint) as isize);
-            chars_0 = chars_0 >> 6 as c_int;
-            (*mm).flight[1 as c_int as usize] =
-                *ais_charset.offset((chars_0 & 0x3f as c_int as c_uint) as isize);
-            chars_0 = chars_0 >> 6 as c_int;
-            (*mm).flight[0 as c_int as usize] =
-                *ais_charset.offset((chars_0 & 0x3f as c_int as c_uint) as isize);
-            chars_0 = ((*msg.offset(8) as c_int) << 16 as c_int
-                | (*msg.offset(9) as c_int) << 8 as c_int
+            (*mm).flight[3] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            chars_0 = chars_0 >> 6;
+            (*mm).flight[2] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            chars_0 = chars_0 >> 6;
+            (*mm).flight[1] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            chars_0 = chars_0 >> 6;
+            (*mm).flight[0] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            chars_0 = ((*msg.offset(8) as c_int) << 16
+                | (*msg.offset(9) as c_int) << 8
                 | *msg.offset(10) as c_int) as u32;
-            (*mm).flight[7 as c_int as usize] =
-                *ais_charset.offset((chars_0 & 0x3f as c_int as c_uint) as isize);
-            chars_0 = chars_0 >> 6 as c_int;
-            (*mm).flight[6 as c_int as usize] =
-                *ais_charset.offset((chars_0 & 0x3f as c_int as c_uint) as isize);
-            chars_0 = chars_0 >> 6 as c_int;
-            (*mm).flight[5 as c_int as usize] =
-                *ais_charset.offset((chars_0 & 0x3f as c_int as c_uint) as isize);
-            chars_0 = chars_0 >> 6 as c_int;
-            (*mm).flight[4 as c_int as usize] =
-                *ais_charset.offset((chars_0 & 0x3f as c_int as c_uint) as isize);
-            (*mm).flight[8 as c_int as usize] = '\u{0}' as i32 as c_char
+            (*mm).flight[7] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            chars_0 = chars_0 >> 6;
+            (*mm).flight[6] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            chars_0 = chars_0 >> 6;
+            (*mm).flight[5] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            chars_0 = chars_0 >> 6;
+            (*mm).flight[4] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            (*mm).flight[8] = 0;
         }
     };
 }
@@ -895,62 +875,48 @@ pub unsafe extern "C" fn decodeModesMessageImpl(
 // This function gets a decoded Mode S Message and prints it on the screen
 // in a human readable format.
 //
-#[no_mangle]
-pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modesMessage) {
-    let mut j: c_int;
-
+fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
     // Handle only addresses mode first.
-    if (*Modes).onlyaddr != 0 {
-        println!("{:06x}", (*mm).addr);
+    if Modes.onlyaddr != 0 {
+        println!("{:06x}", mm.addr);
         return;
         // Enough for --onlyaddr mode
     }
 
     // Show the raw message.
-    if (*Modes).mlat != 0 && (*mm).timestampMsg != 0 {
-        print!("@"); // Provide data to the reader ASAP
-        let pTimeStamp = &mut (*mm).timestampMsg as *mut u64 as *mut c_uchar;
-        j = 5 as c_int;
-        while j >= 0 as c_int {
-            print!("{:02X}", *pTimeStamp.offset(j as isize) as c_int);
-            j -= 1
-        }
-    } else {
-        print!("*");
-    }
+    unsafe { displayRawMessage(Modes, mm) };
 
-    j = 0 as c_int;
-    while j < (*mm).msgbits / 8 as c_int {
-        print!("{:02x}", (*mm).msg[j as usize] as c_int);
+    let mut j = 0;
+    while j < mm.msgbits / 8 as c_int {
+        print!("{:02x}", mm.msg[j as usize] as c_int);
         j += 1
     }
     println!(";");
 
-    if (*Modes).raw != 0 {
-        // fflush(stdout);
+    if Modes.raw != 0 {
         let _ = io::stdout().flush();
         return;
         // Enough for --raw mode
     }
 
-    if (*mm).msgtype < 32 as c_int {
+    if mm.msgtype < 32 as c_int {
         println!(
             "CRC: {:06x} ({})",
-            (*mm).crc as c_int,
-            if (*mm).crcok != 0 { "ok" } else { "wrong" }
+            mm.crc as c_int,
+            if mm.crcok != 0 { "ok" } else { "wrong" }
         );
     }
 
-    if (*mm).correctedbits != 0 as c_int {
-        println!("No. of bit errors fixed: {}", (*mm).correctedbits);
+    if mm.correctedbits != 0 as c_int {
+        println!("No. of bit errors fixed: {}", mm.correctedbits);
     }
 
-    if (*mm).msgtype == 0 as c_int {
+    if mm.msgtype == 0 as c_int {
         // DF 0
         println!("DF 0: Short Air-Air Surveillance.");
         println!(
             "  VS             : {}",
-            if (*mm).msg[0 as c_int as usize] as c_int & 0x4 as c_int != 0 {
+            if mm.msg[0] as c_int & 0x4 as c_int != 0 {
                 "Ground"
             } else {
                 "Airborne"
@@ -958,65 +924,59 @@ pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modes
         );
         println!(
             "  CC             : {}",
-            ((*mm).msg[0 as c_int as usize] as c_int & 0x2 as c_int) >> 1 as c_int
+            (mm.msg[0] as c_int & 0x2 as c_int) >> 1 as c_int
         );
         println!(
             "  SL             : {}",
-            ((*mm).msg[1 as c_int as usize] as c_int & 0xe0 as c_int) >> 5 as c_int
+            (mm.msg[1] as c_int & 0xe0 as c_int) >> 5 as c_int
         );
         println!(
             "  Altitude       : {} {}",
-            (*mm).altitude,
-            if (*mm).unit == MODES_UNIT_METERS {
+            mm.altitude,
+            if mm.unit == MODES_UNIT_METERS {
                 "meters"
             } else {
                 "feet"
             }
         );
-        println!("  ICAO Address   : {:06x}", (*mm).addr);
-    } else if (*mm).msgtype == 4 as c_int || (*mm).msgtype == 20 as c_int {
+        println!("  ICAO Address   : {:06x}", mm.addr);
+    } else if mm.msgtype == 4 as c_int || mm.msgtype == 20 as c_int {
         println!(
             "DF {}: {}, Altitude Reply.",
-            (*mm).msgtype,
-            if (*mm).msgtype == 4 as c_int {
+            mm.msgtype,
+            if mm.msgtype == 4 as c_int {
                 "Surveillance"
             } else {
                 "Comm-B"
             }
         );
-        println!("  Flight Status  : {}", FLIGHT_STATUSES[(*mm).fs as usize]);
+        println!("  Flight Status  : {}", FLIGHT_STATUSES[mm.fs as usize]);
         println!(
             "  DR             : {}",
-            (*mm).msg[1 as c_int as usize] as c_int >> 3 as c_int & 0x1f as c_int
+            mm.msg[1] as c_int >> 3 as c_int & 0x1f as c_int
         );
         println!(
             "  UM             : {}",
-            ((*mm).msg[1 as c_int as usize] as c_int & 7 as c_int) << 3 as c_int
-                | (*mm).msg[2 as c_int as usize] as c_int >> 5 as c_int
+            (mm.msg[1] as c_int & 7 as c_int) << 3 as c_int | mm.msg[2] as c_int >> 5 as c_int
         );
         println!(
             "  Altitude       : {} {}",
-            (*mm).altitude,
-            if (*mm).unit == MODES_UNIT_METERS {
+            mm.altitude,
+            if mm.unit == MODES_UNIT_METERS {
                 "meters"
             } else {
                 "feet"
             }
         );
-        println!("  ICAO Address   : {:06x}", (*mm).addr);
-        if (*mm).msgtype == 20 as c_int {
-            println!(
-                "  Comm-B BDS     : {:x}",
-                (*mm).msg[4 as c_int as usize] as c_int
-            );
+        println!("  ICAO Address   : {:06x}", mm.addr);
+        if mm.msgtype == 20 as c_int {
+            println!("  Comm-B BDS     : {:x}", mm.msg[4] as c_int);
             // Decode the extended squitter message
-            if (*mm).msg[4 as c_int as usize] as c_int == 0x20 as c_int {
+            if mm.msg[4] as c_int == 0x20 as c_int {
                 // BDS 2,0 Aircraft identification
                 println!(
                     "    BDS 2,0 Aircraft Identification : {}",
-                    CStr::from_ptr((*mm).flight.as_ptr())
-                        .to_str()
-                        .unwrap_or("{invalid}")
+                    mm.flight_number_str()
                 );
                 /*
                             } else if ( mm->msg[4]       == 0x10) { // BDS 1,0 Datalink Capability report
@@ -1036,41 +996,35 @@ pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modes
                 */
             }
         }
-    } else if (*mm).msgtype == 5 as c_int || (*mm).msgtype == 21 as c_int {
+    } else if mm.msgtype == 5 as c_int || mm.msgtype == 21 as c_int {
         println!(
             "DF {}: {}, Identity Reply.",
-            (*mm).msgtype,
-            if (*mm).msgtype == 5 as c_int {
+            mm.msgtype,
+            if mm.msgtype == 5 as c_int {
                 "Surveillance"
             } else {
                 "Comm-B"
             }
         );
-        println!("  Flight Status  : {}", FLIGHT_STATUSES[(*mm).fs as usize]);
+        println!("  Flight Status  : {}", FLIGHT_STATUSES[mm.fs as usize]);
         println!(
             "  DR             : {}",
-            (*mm).msg[1 as c_int as usize] as c_int >> 3 as c_int & 0x1f as c_int
+            mm.msg[1] as c_int >> 3 as c_int & 0x1f as c_int
         );
         println!(
             "  UM             : {}",
-            ((*mm).msg[1 as c_int as usize] as c_int & 7 as c_int) << 3 as c_int
-                | (*mm).msg[2 as c_int as usize] as c_int >> 5 as c_int
+            (mm.msg[1] as c_int & 7 as c_int) << 3 as c_int | mm.msg[2] as c_int >> 5 as c_int
         );
-        println!("  Squawk         : {:04x}", (*mm).modeA);
-        println!("  ICAO Address   : {:06x}", (*mm).addr);
-        if (*mm).msgtype == 21 as c_int {
-            println!(
-                "  Comm-B BDS     : {:x}",
-                (*mm).msg[4 as c_int as usize] as c_int
-            );
+        println!("  Squawk         : {:04x}", mm.modeA);
+        println!("  ICAO Address   : {:06x}", mm.addr);
+        if mm.msgtype == 21 as c_int {
+            println!("  Comm-B BDS     : {:x}", mm.msg[4] as c_int);
             // Decode the extended squitter message
-            if (*mm).msg[4 as c_int as usize] as c_int == 0x20 as c_int {
+            if mm.msg[4] as c_int == 0x20 as c_int {
                 // BDS 2,0 Aircraft identification
                 println!(
                     "    BDS 2,0 Aircraft Identification : {}",
-                    CStr::from_ptr((*mm).flight.as_ptr())
-                        .to_str()
-                        .unwrap_or("{invalid}")
+                    mm.flight_number_str()
                 );
                 /*
                             } else if ( mm->msg[4]       == 0x10) { // BDS 1,0 Datalink Capability report
@@ -1090,26 +1044,25 @@ pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modes
                 */
             }
         }
-    } else if (*mm).msgtype == 11 as c_int {
+    } else if mm.msgtype == 11 as c_int {
         // DF 11
         println!("DF 11: All Call Reply.");
         println!(
             "  Capability  : {} ({})",
-            (*mm).ca,
-            CAPABILITIES[(*mm).ca as usize]
+            mm.ca, CAPABILITIES[mm.ca as usize]
         );
-        println!("  ICAO Address: {:06x}", (*mm).addr);
-        if (*mm).iid > 16 as c_int {
-            println!("  IID         : SI-{:02}", (*mm).iid - 16 as c_int);
+        println!("  ICAO Address: {:06x}", mm.addr);
+        if mm.iid > 16 as c_int {
+            println!("  IID         : SI-{:02}", mm.iid - 16 as c_int);
         } else {
-            println!("  IID         : II-{:02}", (*mm).iid);
+            println!("  IID         : II-{:02}", mm.iid);
         }
-    } else if (*mm).msgtype == 16 as c_int {
+    } else if mm.msgtype == 16 as c_int {
         // DF 16
         println!("DF 16: Long Air to Air ACAS");
         println!(
             "  VS             : {}",
-            if (*mm).msg[0 as c_int as usize] as c_int & 0x4 as c_int != 0 {
+            if mm.msg[0] as c_int & 0x4 as c_int != 0 {
                 "Ground"
             } else {
                 "Airborne"
@@ -1117,76 +1070,70 @@ pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modes
         );
         println!(
             "  CC             : {}",
-            ((*mm).msg[0 as c_int as usize] as c_int & 0x2 as c_int) >> 1 as c_int
+            (mm.msg[0] as c_int & 0x2 as c_int) >> 1 as c_int
         );
         println!(
             "  SL             : {}",
-            ((*mm).msg[1 as c_int as usize] as c_int & 0xe0 as c_int) >> 5 as c_int
+            (mm.msg[1] as c_int & 0xe0 as c_int) >> 5 as c_int
         );
         println!(
             "  Altitude       : {} {}",
-            (*mm).altitude,
-            if (*mm).unit == MODES_UNIT_METERS {
+            mm.altitude,
+            if mm.unit == MODES_UNIT_METERS {
                 "meters"
             } else {
                 "feet"
             }
         );
-        println!("  ICAO Address   : {:06x}", (*mm).addr);
-    } else if (*mm).msgtype == 17 as c_int {
+        println!("  ICAO Address   : {:06x}", mm.addr);
+    } else if mm.msgtype == 17 as c_int {
         // DF 17
         println!("DF 17: ADS-B message.");
         println!(
             "  Capability     : {} ({})",
-            (*mm).ca,
-            CAPABILITIES[(*mm).ca as usize]
+            mm.ca, CAPABILITIES[mm.ca as usize]
         );
-        println!("  ICAO Address   : {:06x}", (*mm).addr);
-        println!("  Extended Squitter  Type: {}", (*mm).metype);
-        println!("  Extended Squitter  Sub : {}", (*mm).mesub);
+        println!("  ICAO Address   : {:06x}", mm.addr);
+        println!("  Extended Squitter  Type: {}", mm.metype);
+        println!("  Extended Squitter  Sub : {}", mm.mesub);
         println!(
             "  Extended Squitter  Name: {}",
-            getMEDescription((*mm).metype, (*mm).mesub)
+            getMEDescription(mm.metype, mm.mesub)
         );
 
         // Decode the extended squitter message
-        if (*mm).metype >= 1 as c_int && (*mm).metype <= 4 as c_int {
+        if mm.metype >= 1 as c_int && mm.metype <= 4 as c_int {
             // Aircraft identification
             println!(
                 "    Aircraft Type  : {}{}",
-                std::char::from_u32('A' as u32 + 4 - (*mm).metype as u32).unwrap_or('?'),
-                (*mm).mesub
+                std::char::from_u32('A' as u32 + 4 - mm.metype as u32).unwrap_or('?'),
+                mm.mesub
             );
-            println!(
-                "    Identification : {}",
-                CStr::from_ptr((*mm).flight.as_ptr())
-                    .to_str()
-                    .unwrap_or("{invalid}")
-            );
-        } else if (*mm).metype == 19 as c_int {
+            println!("    Identification : {}", mm.flight_number_str());
+        } else if mm.metype == 19 as c_int {
             // Airborne Velocity
-            if (*mm).mesub == 1 as c_int || (*mm).mesub == 2 as c_int {
+            if mm.mesub == 1 as c_int || mm.mesub == 2 as c_int {
                 println!(
                     "    EW status         : {}",
-                    if (*mm).bFlags & MODES_ACFLAGS_EWSPEED_VALID != 0 {
+                    if mm.bFlags & MODES_ACFLAGS_EWSPEED_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
                     }
                 );
-                println!("    EW velocity       : {}", (*mm).ew_velocity);
+                println!("    EW velocity       : {}", mm.ew_velocity);
                 println!(
                     "    NS status         : {}",
-                    if (*mm).bFlags & MODES_ACFLAGS_NSSPEED_VALID != 0 {
+                    if mm.bFlags & MODES_ACFLAGS_NSSPEED_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
                     }
                 );
-                println!("    NS velocity       : {}", (*mm).ns_velocity);
+                println!("    NS velocity       : {}", mm.ns_velocity);
                 println!(
                     "    Vertical status   : {}",
-                    if (*mm).bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                    if mm.bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
@@ -1194,31 +1141,31 @@ pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modes
                 );
                 println!(
                     "    Vertical rate src : {}",
-                    (*mm).msg[8 as c_int as usize] as c_int >> 4 as c_int & 1 as c_int
+                    mm.msg[8] as c_int >> 4 as c_int & 1 as c_int
                 );
-                println!("    Vertical rate     : {}", (*mm).vert_rate);
-            } else if (*mm).mesub == 3 as c_int || (*mm).mesub == 4 as c_int {
+                println!("    Vertical rate     : {}", mm.vert_rate);
+            } else if mm.mesub == 3 as c_int || mm.mesub == 4 as c_int {
                 println!(
                     "    Heading status    : {}",
-                    if (*mm).bFlags & MODES_ACFLAGS_HEADING_VALID != 0 {
+                    if mm.bFlags & MODES_ACFLAGS_HEADING_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
                     }
                 );
-                println!("    Heading           : {}", (*mm).heading);
+                println!("    Heading           : {}", mm.heading);
                 println!(
                     "    Airspeed status   : {}",
-                    if (*mm).bFlags & MODES_ACFLAGS_SPEED_VALID != 0 {
+                    if mm.bFlags & MODES_ACFLAGS_SPEED_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
                     }
                 );
-                println!("    Airspeed          : {}", (*mm).velocity);
+                println!("    Airspeed          : {}", mm.velocity);
                 println!(
                     "    Vertical status   : {}",
-                    if (*mm).bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                    if mm.bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
@@ -1226,21 +1173,20 @@ pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modes
                 );
                 println!(
                     "    Vertical rate src : {}",
-                    (*mm).msg[8 as c_int as usize] as c_int >> 4 as c_int & 1 as c_int
+                    mm.msg[8] as c_int >> 4 as c_int & 1 as c_int
                 );
-                println!("    Vertical rate     : {}", (*mm).vert_rate);
+                println!("    Vertical rate     : {}", mm.vert_rate);
             } else {
                 println!(
                     "    Unrecognized ME subtype: {} subtype: {}",
-                    (*mm).metype,
-                    (*mm).mesub
+                    mm.metype, mm.mesub
                 );
             }
-        } else if (*mm).metype >= 5 as c_int && (*mm).metype <= 22 as c_int {
+        } else if mm.metype >= 5 as c_int && mm.metype <= 22 as c_int {
             // Airborne position Baro
             println!(
                 "    F flag   : {}",
-                if (*mm).msg[6 as c_int as usize] as c_int & 0x4 as c_int != 0 {
+                if mm.msg[6] as c_int & 0x4 as c_int != 0 {
                     "odd"
                 } else {
                     "even"
@@ -1248,113 +1194,103 @@ pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modes
             );
             println!(
                 "    T flag   : {}",
-                if (*mm).msg[6 as c_int as usize] as c_int & 0x8 as c_int != 0 {
+                if mm.msg[6] as c_int & 0x8 as c_int != 0 {
                     "UTC"
                 } else {
                     "non-UTC"
                 }
             );
-            println!("    Altitude : {} feet", (*mm).altitude);
-            if (*mm).bFlags & MODES_ACFLAGS_LATLON_VALID != 0 {
-                println!("    Latitude : {:.6}", (*mm).fLat);
-                println!("    Longitude: {:.6}", (*mm).fLon);
+            println!("    Altitude : {} feet", mm.altitude);
+            if mm.bFlags & MODES_ACFLAGS_LATLON_VALID != 0 {
+                println!("    Latitude : {:.6}", mm.fLat);
+                println!("    Longitude: {:.6}", mm.fLon);
             } else {
-                println!("    Latitude : {} (not decoded)", (*mm).raw_latitude);
-                println!("    Longitude: {} (not decoded)", (*mm).raw_longitude);
+                println!("    Latitude : {} (not decoded)", mm.raw_latitude);
+                println!("    Longitude: {} (not decoded)", mm.raw_longitude);
             }
-        } else if (*mm).metype == 28 as c_int {
+        } else if mm.metype == 28 as c_int {
             // Extended Squitter Aircraft Status
-            if (*mm).mesub == 1 as c_int {
+            if mm.mesub == 1 as c_int {
                 println!(
                     "    Emergency State: {}",
-                    EMERGENCY_STATES[(((*mm).msg[5 as c_int as usize] as c_int & 0xe0 as c_int)
-                        >> 5 as c_int) as usize]
+                    EMERGENCY_STATES[((mm.msg[5] as c_int & 0xe0 as c_int) >> 5 as c_int) as usize]
                 );
-                println!("    Squawk: {:04x}", (*mm).modeA);
+                println!("    Squawk: {:04x}", mm.modeA);
             } else {
                 println!(
                     "    Unrecognized ME subtype: {} subtype: {}",
-                    (*mm).metype,
-                    (*mm).mesub
+                    mm.metype, mm.mesub
                 );
             }
-        } else if (*mm).metype == 23 as c_int {
+        } else if mm.metype == 23 as c_int {
             // Test Message
-            if (*mm).mesub == 7 as c_int {
-                println!("    Squawk: {:04x}", (*mm).modeA);
+            if mm.mesub == 7 as c_int {
+                println!("    Squawk: {:04x}", mm.modeA);
             } else {
                 println!(
                     "    Unrecognized ME subtype: {} subtype: {}",
-                    (*mm).metype,
-                    (*mm).mesub
+                    mm.metype, mm.mesub
                 );
             }
         } else {
             println!(
                 "    Unrecognized ME type: {} subtype: {}",
-                (*mm).metype,
-                (*mm).mesub
+                mm.metype, mm.mesub
             );
         }
-    } else if (*mm).msgtype == 18 as c_int {
+    } else if mm.msgtype == 18 as c_int {
         // DF 18
         println!("DF 18: Extended Squitter.");
         println!(
             "  Control Field : {} ({})",
-            (*mm).ca,
-            CONTROL_FIELDS[(*mm).ca as usize]
+            mm.ca, CONTROL_FIELDS[mm.ca as usize]
         );
-        if (*mm).ca == 0 as c_int || (*mm).ca == 1 as c_int || (*mm).ca == 6 as c_int {
-            if (*mm).ca == 1 as c_int {
-                println!("  Other Address : {:06x}", (*mm).addr);
+        if mm.ca == 0 as c_int || mm.ca == 1 as c_int || mm.ca == 6 as c_int {
+            if mm.ca == 1 as c_int {
+                println!("  Other Address : {:06x}", mm.addr);
             } else {
-                println!("  ICAO Address  : {:06x}", (*mm).addr);
+                println!("  ICAO Address  : {:06x}", mm.addr);
             }
-            println!("  Extended Squitter  Type: {}", (*mm).metype);
-            println!("  Extended Squitter  Sub : {}", (*mm).mesub);
+            println!("  Extended Squitter  Type: {}", mm.metype);
+            println!("  Extended Squitter  Sub : {}", mm.mesub);
             println!(
                 "  Extended Squitter  Name: {}",
-                getMEDescription((*mm).metype, (*mm).mesub)
+                getMEDescription(mm.metype, mm.mesub)
             );
 
             // Decode the extended squitter message
-            if (*mm).metype >= 1 as c_int && (*mm).metype <= 4 as c_int {
+            if mm.metype >= 1 as c_int && mm.metype <= 4 as c_int {
                 // Aircraft identification
                 println!(
                     "    Aircraft Type  : {}{}",
-                    std::char::from_u32('A' as u32 + 4 - (*mm).metype as u32).unwrap_or('?'),
-                    (*mm).mesub
+                    std::char::from_u32('A' as u32 + 4 - mm.metype as u32).unwrap_or('?'),
+                    mm.mesub
                 );
-                println!(
-                    "    Identification : {}",
-                    CStr::from_ptr((*mm).flight.as_ptr())
-                        .to_str()
-                        .unwrap_or("{invalid}")
-                );
-            } else if (*mm).metype == 19 as c_int {
+                println!("    Identification : {}", mm.flight_number_str());
+            } else if mm.metype == 19 as c_int {
                 // Airborne Velocity
-                if (*mm).mesub == 1 as c_int || (*mm).mesub == 2 as c_int {
+                if mm.mesub == 1 as c_int || mm.mesub == 2 as c_int {
                     println!(
                         "    EW status         : {}",
-                        if (*mm).bFlags & MODES_ACFLAGS_EWSPEED_VALID != 0 {
+                        if mm.bFlags & MODES_ACFLAGS_EWSPEED_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
                         }
                     );
-                    println!("    EW velocity       : {}", (*mm).ew_velocity);
+                    println!("    EW velocity       : {}", mm.ew_velocity);
                     println!(
                         "    NS status         : {}",
-                        if (*mm).bFlags & MODES_ACFLAGS_NSSPEED_VALID != 0 {
+                        if mm.bFlags & MODES_ACFLAGS_NSSPEED_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
                         }
                     );
-                    println!("    NS velocity       : {}", (*mm).ns_velocity);
+                    println!("    NS velocity       : {}", mm.ns_velocity);
                     println!(
                         "    Vertical status   : {}",
-                        if (*mm).bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                        if mm.bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
@@ -1362,31 +1298,31 @@ pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modes
                     );
                     println!(
                         "    Vertical rate src : {}",
-                        (*mm).msg[8 as c_int as usize] as c_int >> 4 as c_int & 1 as c_int
+                        mm.msg[8] as c_int >> 4 as c_int & 1 as c_int
                     );
-                    println!("    Vertical rate     : {}", (*mm).vert_rate);
-                } else if (*mm).mesub == 3 as c_int || (*mm).mesub == 4 as c_int {
+                    println!("    Vertical rate     : {}", mm.vert_rate);
+                } else if mm.mesub == 3 as c_int || mm.mesub == 4 as c_int {
                     println!(
                         "    Heading status    : {}",
-                        if (*mm).bFlags & MODES_ACFLAGS_HEADING_VALID != 0 {
+                        if mm.bFlags & MODES_ACFLAGS_HEADING_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
                         }
                     );
-                    println!("    Heading           : {}", (*mm).heading);
+                    println!("    Heading           : {}", mm.heading);
                     println!(
                         "    Airspeed status   : {}",
-                        if (*mm).bFlags & MODES_ACFLAGS_SPEED_VALID != 0 {
+                        if mm.bFlags & MODES_ACFLAGS_SPEED_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
                         }
                     );
-                    println!("    Airspeed          : {}", (*mm).velocity);
+                    println!("    Airspeed          : {}", mm.velocity);
                     println!(
                         "    Vertical status   : {}",
-                        if (*mm).bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                        if mm.bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
@@ -1394,21 +1330,20 @@ pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modes
                     );
                     println!(
                         "    Vertical rate src : {}",
-                        (*mm).msg[8 as c_int as usize] as c_int >> 4 as c_int & 1 as c_int
+                        mm.msg[8] as c_int >> 4 as c_int & 1 as c_int
                     );
-                    println!("    Vertical rate     : {}", (*mm).vert_rate);
+                    println!("    Vertical rate     : {}", mm.vert_rate);
                 } else {
                     println!(
                         "    Unrecognized ME subtype: {} subtype: {}",
-                        (*mm).metype,
-                        (*mm).mesub
+                        mm.metype, mm.mesub
                     );
                 }
-            } else if (*mm).metype >= 5 as c_int && (*mm).metype <= 22 as c_int {
+            } else if mm.metype >= 5 as c_int && mm.metype <= 22 as c_int {
                 // Ground or Airborne position, Baro or GNSS
                 println!(
                     "    F flag   : {}",
-                    if (*mm).msg[6 as c_int as usize] as c_int & 0x4 as c_int != 0 {
+                    if mm.msg[6] as c_int & 0x4 as c_int != 0 {
                         "odd"
                     } else {
                         "even"
@@ -1416,52 +1351,65 @@ pub unsafe extern "C" fn displayModesMessage(Modes: *const modes, mm: *mut modes
                 );
                 println!(
                     "    T flag   : {}",
-                    if (*mm).msg[6 as c_int as usize] as c_int & 0x8 as c_int != 0 {
+                    if mm.msg[6] as c_int & 0x8 as c_int != 0 {
                         "UTC"
                     } else {
                         "non-UTC"
                     }
                 );
-                println!("    Altitude : {} feet", (*mm).altitude);
-                if (*mm).bFlags & MODES_ACFLAGS_LATLON_VALID != 0 {
-                    println!("    Latitude : {}", (*mm).fLat);
-                    println!("    Longitude: {}", (*mm).fLon);
+                println!("    Altitude : {} feet", mm.altitude);
+                if mm.bFlags & MODES_ACFLAGS_LATLON_VALID != 0 {
+                    println!("    Latitude : {}", mm.fLat);
+                    println!("    Longitude: {}", mm.fLon);
                 } else {
-                    println!("    Latitude : {} (not decoded)", (*mm).raw_latitude);
-                    println!("    Longitude: {} (not decoded)", (*mm).raw_longitude);
+                    println!("    Latitude : {} (not decoded)", mm.raw_latitude);
+                    println!("    Longitude: {} (not decoded)", mm.raw_longitude);
                 }
             } else {
                 println!(
                     "    Unrecognized ME type: {} subtype: {}",
-                    (*mm).metype,
-                    (*mm).mesub
+                    mm.metype, mm.mesub
                 );
             }
         }
-    } else if (*mm).msgtype == 19 as c_int {
+    } else if mm.msgtype == 19 as c_int {
         // DF 19
         println!("DF 19: Military Extended Squitter.");
-    } else if (*mm).msgtype == 22 as c_int {
+    } else if mm.msgtype == 22 as c_int {
         // DF 22
         println!("DF 22: Military Use.");
-    } else if (*mm).msgtype == 24 as c_int {
+    } else if mm.msgtype == 24 as c_int {
         // DF 24
         println!("DF 24: Comm D Extended Length Message.");
-    } else if (*mm).msgtype == 32 as c_int {
+    } else if mm.msgtype == 32 as c_int {
         // DF 32 is special code we use for Mode A/C
         println!("SSR : Mode A/C Reply.");
-        if (*mm).fs & 0x80 as c_int != 0 {
-            println!("  Mode A : {:04x} IDENT", (*mm).modeA);
+        if mm.fs & 0x80 as c_int != 0 {
+            println!("  Mode A : {:04x} IDENT", mm.modeA);
         } else {
-            println!("  Mode A : {:04x}", (*mm).modeA);
-            if (*mm).bFlags & MODES_ACFLAGS_ALTITUDE_VALID != 0 {
-                println!("  Mode C : {} feet", (*mm).altitude);
+            println!("  Mode A : {:04x}", mm.modeA);
+            if mm.bFlags & MODES_ACFLAGS_ALTITUDE_VALID != 0 {
+                println!("  Mode C : {} feet", mm.altitude);
             }
         }
     } else {
-        println!("DF {}: Unknown DF Format.", (*mm).msgtype);
+        println!("DF {}: Unknown DF Format.", mm.msgtype);
     }
     println!();
+}
+
+unsafe fn displayRawMessage(Modes: &modes, mm: &modesMessage) {
+    if Modes.mlat != 0 && mm.timestampMsg != 0 {
+        print!("@"); // Provide data to the reader ASAP
+        let pTimeStamp = &mm.timestampMsg as *const u64 as *const c_uchar;
+        let mut j = 5;
+        while j >= 0 {
+            print!("{:02X}", *pTimeStamp.offset(j as isize) as c_int);
+            j -= 1
+        }
+    } else {
+        print!("*");
+    }
 }
 
 // Capability table
@@ -1542,6 +1490,16 @@ fn getMEDescription(metype: c_int, mesub: c_int) -> &'static str {
         "Aircraft Operational Status Message"
     } else {
         "Unknown"
+    }
+}
+
+impl modesMessage {
+    fn flight_number_str(&self) -> &str {
+        unsafe {
+            CStr::from_ptr(&self.flight as *const c_char)
+                .to_str()
+                .unwrap_or("{invalid}")
+        }
     }
 }
 
@@ -2282,7 +2240,7 @@ pub unsafe extern "C" fn useModesMessage(Modes: *mut modes, mm: *mut modesMessag
 
         // In non-interactive non-quiet mode, display messages on standard output
         if (*Modes).interactive == 0 && (*Modes).quiet == 0 {
-            displayModesMessage(Modes, mm);
+            displayModesMessage(&*Modes, &*mm);
         }
 
         // Feed output clients
