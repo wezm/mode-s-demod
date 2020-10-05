@@ -6,6 +6,7 @@ use crate::modesMessage;
 
 pub const MODEAC_MSG_SAMPLES: u32 = 25 * 2; // include up to the SPI bit
                                             // const MODEAC_MSG_BYTES: c_int = 2;
+const MODES_ACFLAGS_SQUAWK_VALID: c_int = 1 << 5;
 const MODEAC_MSG_SQUELCH_LEVEL: c_int = 0x07FF; // Average signal strength limit
                                                 // const MODEAC_MSG_FLAG: c_int = 1 << 0;
                                                 // const MODEAC_MSG_MODES_HIT: c_int = 1 << 1;
@@ -368,4 +369,30 @@ pub extern "C" fn ModeAToModeC(ModeA: c_uint) -> c_int {
         .wrapping_mul(5)
         .wrapping_add(OneHundreds)
         .wrapping_sub(13) as c_int;
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn decodeModeAMessage(mm: *mut modesMessage, ModeA: c_int) {
+    (*mm).msgtype = 32; // Valid Mode S DF's are DF-00 to DF-31.
+                        // so use 32 to indicate Mode A/C
+
+    (*mm).msgbits = 16; // Fudge up a Mode S style data stream
+    (*mm).msg[0] = (ModeA >> 8) as c_uchar;
+    (*mm).msg[1] = ModeA as c_uchar;
+
+    // Fudge an ICAO address based on Mode A (remove the Ident bit)
+    // Use an upper address byte of FF, since this is ICAO unallocated
+    (*mm).addr = (0xff0000 | ModeA & 0xff7f) as u32;
+
+    // Set the Identity field to ModeA
+    (*mm).modeA = ModeA & 0x7777;
+    (*mm).bFlags |= MODES_ACFLAGS_SQUAWK_VALID;
+
+    // Flag ident in flight status
+    (*mm).fs = ModeA & 0x80;
+
+    // Not much else we can tell from a Mode A/C reply.
+    // Just fudge up a few bits to keep other code happy
+    (*mm).crcok = 1;
+    (*mm).correctedbits = 0;
 }
