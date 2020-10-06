@@ -2196,6 +2196,18 @@ pub unsafe extern "C" fn useModesMessage(Modes: *mut modes, mm: *mut modesMessag
     };
 }
 
+// Always positive MOD operation, used for CPR decoding.
+//
+#[no_mangle]
+pub extern "C" fn cprModFunction(a: c_int, b: c_int) -> c_int {
+    let res = a % b;
+    if res < 0 {
+        res + b
+    } else {
+        res
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
