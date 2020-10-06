@@ -10,7 +10,18 @@ use std::{io, mem, ptr, time};
 
 use crate::io::modesQueueOutput;
 use crate::mode_ac::{decodeModeAMessage, detectModeA, ModeAToModeC, MODEAC_MSG_SAMPLES};
-use crate::{aircraft, modes, modesMessage};
+use crate::{
+    aircraft, modes, modesMessage, MODES_ACFLAGS_ALTITUDE_VALID, MODES_ACFLAGS_EWSPEED_VALID,
+    MODES_ACFLAGS_HEADING_VALID, MODES_ACFLAGS_LATLON_REL_OK, MODES_ACFLAGS_LATLON_VALID,
+    MODES_ACFLAGS_NSSPEED_VALID, MODES_ACFLAGS_SPEED_VALID, MODES_ACFLAGS_VERTRATE_VALID,
+    MODES_ASYNC_BUF_SAMPLES, MODES_DEBUG_BADCRC, MODES_DEBUG_DEMOD, MODES_DEBUG_DEMODERR,
+    MODES_DEBUG_GOODCRC, MODES_DEBUG_NOPREAMBLE, MODES_DEBUG_NOPREAMBLE_LEVEL,
+    MODES_ICAO_CACHE_LEN, MODES_ICAO_CACHE_TTL, MODES_LONG_MSG_BITS, MODES_LONG_MSG_BYTES,
+    MODES_LONG_MSG_SAMPLES, MODES_LONG_MSG_SIZE, MODES_MAX_BITERRORS, MODES_MSG_ENCODER_ERRS,
+    MODES_MSG_SQUELCH_LEVEL, MODES_PREAMBLE_SAMPLES, MODES_PREAMBLE_SIZE, MODES_PREAMBLE_US,
+    MODES_SHORT_MSG_BITS, MODES_UNIT_FEET, MODES_UNIT_METERS, MODES_USER_LATITUDE_DFLT,
+    MODES_USER_LATLON_VALID, MODES_USER_LONGITUDE_DFLT,
+};
 
 extern "C" {
     #[no_mangle]
@@ -22,76 +33,6 @@ extern "C" {
     #[no_mangle]
     fn interactiveReceiveData(mm: *mut modesMessage) -> *mut aircraft; // noport
 }
-
-// const MODES_DEFAULT_PPM: c_int = 52;
-// const MODES_DEFAULT_RATE: c_int = 2000000;
-// const MODES_DEFAULT_FREQ: c_int = 1090000000;
-// const MODES_DEFAULT_WIDTH: c_int = 1000;
-// const MODES_DEFAULT_HEIGHT: c_int = 700;
-pub(crate) const MODES_ASYNC_BUF_NUMBER: usize = 16;
-const MODES_ASYNC_BUF_SIZE: usize = 16 * 16384; // 256k
-const MODES_ASYNC_BUF_SAMPLES: usize = MODES_ASYNC_BUF_SIZE / 2; // Each sample is 2 bytes
-                                                                 // const MODES_AUTO_GAIN: c_int = -100; // Use automatic gain
-                                                                 // const MODES_MAX_GAIN: c_int = 999999; // Use max available gain
-const MODES_MSG_SQUELCH_LEVEL: c_int = 0x02FF; // Average signal strength limit
-const MODES_MSG_ENCODER_ERRS: c_int = 3; // Maximum number of encoding errors
-
-// When changing, change also fixBitErrors() and modesInitErrorTable() !!
-pub(crate) const MODES_MAX_BITERRORS: usize = 2; // Global max for fixable bit errors
-
-const MODES_PREAMBLE_US: usize = 8; // microseconds = bits
-const MODES_PREAMBLE_SAMPLES: usize = MODES_PREAMBLE_US * 2;
-const MODES_PREAMBLE_SIZE: usize = MODES_PREAMBLE_SAMPLES * mem::size_of::<u16>();
-pub(crate) const MODES_LONG_MSG_BYTES: usize = 14;
-const MODES_SHORT_MSG_BYTES: usize = 7;
-const MODES_LONG_MSG_BITS: c_int = MODES_LONG_MSG_BYTES as c_int * 8;
-const MODES_SHORT_MSG_BITS: c_int = MODES_SHORT_MSG_BYTES as c_int * 8;
-const MODES_LONG_MSG_SAMPLES: usize = MODES_LONG_MSG_BITS as usize * 2;
-// const MODES_SHORT_MSG_SAMPLES: usize = MODES_SHORT_MSG_BITS as usize * 2;
-const MODES_LONG_MSG_SIZE: usize = MODES_LONG_MSG_SAMPLES * mem::size_of::<u16>();
-// const MODES_SHORT_MSG_SIZE: usize = MODES_SHORT_MSG_SAMPLES * mem::size_of::<u16>();
-
-// const MODES_RAWOUT_BUF_SIZE: c_int = 1500;
-// const MODES_RAWOUT_BUF_FLUSH: c_int = MODES_RAWOUT_BUF_SIZE - 200;
-// const MODES_RAWOUT_BUF_RATE: c_int = 1000; // 1000 * 64mS = 1 Min approx
-
-const MODES_ICAO_CACHE_LEN: u32 = 1024; // Value must be a power of two
-const MODES_ICAO_CACHE_TTL: u64 = 60; // Time to live of cached addresses
-const MODES_UNIT_FEET: c_int = 0;
-const MODES_UNIT_METERS: c_int = 1;
-
-const MODES_ACFLAGS_LATLON_VALID: c_int = 1 << 0; // Aircraft Lat/Lon is decoded
-const MODES_ACFLAGS_ALTITUDE_VALID: c_int = 1 << 1; // Aircraft altitude is known
-const MODES_ACFLAGS_HEADING_VALID: c_int = 1 << 2; // Aircraft heading is known
-const MODES_ACFLAGS_SPEED_VALID: c_int = 1 << 3; // Aircraft speed is known
-const MODES_ACFLAGS_VERTRATE_VALID: c_int = 1 << 4; // Aircraft vertical rate is known
-                                                    // const MODES_ACFLAGS_SQUAWK_VALID: c_int = 1 << 5; // Aircraft Mode A Squawk is known
-                                                    // const MODES_ACFLAGS_CALLSIGN_VALID: c_int = 1 << 6; // Aircraft Callsign Identity
-const MODES_ACFLAGS_EWSPEED_VALID: c_int = 1 << 7; // Aircraft East West Speed is known
-const MODES_ACFLAGS_NSSPEED_VALID: c_int = 1 << 8; // Aircraft North South Speed is known
-                                                   // const MODES_ACFLAGS_AOG: c_int = 1 << 9; // Aircraft is On the Ground
-                                                   // const MODES_ACFLAGS_LLEVEN_VALID: c_int = 1 << 10; // Aircraft Even Lot/Lon is known
-                                                   // const MODES_ACFLAGS_LLODD_VALID: c_int = 1 << 11; // Aircraft Odd Lot/Lon is known
-                                                   // const MODES_ACFLAGS_AOG_VALID: c_int = 1 << 12; // MODES_ACFLAGS_AOG is valid
-                                                   // const MODES_ACFLAGS_FS_VALID: c_int = 1 << 13; // Aircraft Flight Status is known
-                                                   // const MODES_ACFLAGS_NSEWSPD_VALID: c_int = 1 << 14; // Aircraft EW and NS Speed is known
-                                                   // const MODES_ACFLAGS_LATLON_REL_OK: c_int = 1 << 15; // Indicates it's OK to do a relative CPR
-
-// const MODES_ACFLAGS_LLEITHER_VALID: c_int = MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID;
-// const MODES_ACFLAGS_LLBOTH_VALID: c_int = MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID;
-// const MODES_ACFLAGS_AOG_GROUND: c_int = MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
-
-const MODES_DEBUG_DEMOD: c_int = 1 << 0;
-const MODES_DEBUG_DEMODERR: c_int = 1 << 1;
-const MODES_DEBUG_BADCRC: c_int = 1 << 2;
-const MODES_DEBUG_GOODCRC: c_int = 1 << 3;
-const MODES_DEBUG_NOPREAMBLE: c_int = 1 << 4;
-// const MODES_DEBUG_NET: c_int = 1<<5;
-// const MODES_DEBUG_JS: c_int = 1<<6;
-
-// When debug is set to MODES_DEBUG_NOPREAMBLE, the first sample must be
-// at least greater than a given level for us to dump the signal.
-const MODES_DEBUG_NOPREAMBLE_LEVEL: c_int = 25;
 
 // Parity table for MODE S Messages.
 // The table contains 112 elements, every element corresponds to a bit set

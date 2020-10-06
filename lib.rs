@@ -4,15 +4,113 @@ use std::os::raw::{
     c_char, c_double, c_int, c_long, c_longlong, c_short, c_uchar, c_uint, c_ulong, c_ulonglong,
     c_ushort, c_void,
 };
+use std::{mem, ptr, time};
 
 mod io;
 mod mode_ac;
 mod mode_s;
 
-use mode_s::{MODES_ASYNC_BUF_NUMBER, MODES_LONG_MSG_BYTES, MODES_MAX_BITERRORS};
-
 const ANET_ERR_LEN: usize = 256;
-const MODES_CLIENT_BUF_SIZE: usize = 1024;
+
+const MODES_NET_SERVICES_NUM: c_int = 6;
+const MODES_NET_INPUT_RAW_PORT: c_int = 30001;
+const MODES_NET_OUTPUT_RAW_PORT: c_int = 30002;
+const MODES_NET_OUTPUT_SBS_PORT: c_int = 30003;
+const MODES_NET_INPUT_BEAST_PORT: c_int = 30004;
+const MODES_NET_OUTPUT_BEAST_PORT: c_int = 30005;
+const MODES_NET_HTTP_PORT: c_int = 8080;
+const MODES_CLIENT_BUF_SIZE: c_int = 1024;
+const MODES_NET_SNDBUF_SIZE: c_int = (1024 * 64);
+pub const MODES_NET_SNDBUF_MAX: c_int = (7);
+
+const MODES_USER_LONGITUDE_DFLT: c_double = 0.0f64;
+const MODES_USER_LATITUDE_DFLT: c_double = 0.0f64;
+const MODES_INTERACTIVE_DISPLAY_TTL: c_int = 60 as c_int;
+const MODES_INTERACTIVE_DELETE_TTL: c_int = 300 as c_int;
+const MODES_NET_HEARTBEAT_RATE: c_int = 900 as c_int;
+const MODES_DEFAULT_PPM: c_int = 52 as c_int;
+const MODES_DEFAULT_FREQ: c_int = 1090000000 as c_int;
+const MODES_MAX_GAIN: c_int = 999999 as c_int;
+pub const MODES_USER_LATLON_VALID: c_int = (1 as c_int) << 0 as c_int;
+// const MODES_PREAMBLE_US: c_int = 8 as c_int;
+// const MODES_PREAMBLE_SAMPLES: c_int =
+//     MODES_PREAMBLE_US * 2 as c_int;
+// const MODES_ASYNC_BUF_SIZE: c_int =
+//     16 as c_int * 16384 as c_int;
+// const MODES_ICAO_CACHE_LEN: c_int = 1024 as c_int;
+
+// const MODES_DEFAULT_PPM: c_int = 52;
+// const MODES_DEFAULT_RATE: c_int = 2000000;
+// const MODES_DEFAULT_FREQ: c_int = 1090000000;
+// const MODES_DEFAULT_WIDTH: c_int = 1000;
+// const MODES_DEFAULT_HEIGHT: c_int = 700;
+pub(crate) const MODES_ASYNC_BUF_NUMBER: usize = 16;
+pub const MODES_ASYNC_BUF_SIZE: usize = 16 * 16384; // 256k
+pub const MODES_ASYNC_BUF_SAMPLES: usize = MODES_ASYNC_BUF_SIZE / 2; // Each sample is 2 bytes
+                                                                     // const MODES_AUTO_GAIN: c_int = -100; // Use automatic gain
+                                                                     // const MODES_MAX_GAIN: c_int = 999999; // Use max available gain
+const MODES_MSG_SQUELCH_LEVEL: c_int = 0x02FF; // Average signal strength limit
+const MODES_MSG_ENCODER_ERRS: c_int = 3; // Maximum number of encoding errors
+
+// When changing, change also fixBitErrors() and modesInitErrorTable() !!
+pub const MODES_MAX_BITERRORS: usize = 2; // Global max for fixable bit errors
+
+const MODES_PREAMBLE_US: usize = 8; // microseconds = bits
+pub const MODES_PREAMBLE_SAMPLES: usize = MODES_PREAMBLE_US * 2;
+const MODES_PREAMBLE_SIZE: usize = MODES_PREAMBLE_SAMPLES * mem::size_of::<u16>();
+pub(crate) const MODES_LONG_MSG_BYTES: usize = 14;
+const MODES_SHORT_MSG_BYTES: usize = 7;
+const MODES_LONG_MSG_BITS: c_int = MODES_LONG_MSG_BYTES as c_int * 8;
+const MODES_SHORT_MSG_BITS: c_int = MODES_SHORT_MSG_BYTES as c_int * 8;
+pub const MODES_LONG_MSG_SAMPLES: usize = MODES_LONG_MSG_BITS as usize * 2;
+// const MODES_SHORT_MSG_SAMPLES: usize = MODES_SHORT_MSG_BITS as usize * 2;
+const MODES_LONG_MSG_SIZE: usize = MODES_LONG_MSG_SAMPLES * mem::size_of::<u16>();
+// const MODES_SHORT_MSG_SIZE: usize = MODES_SHORT_MSG_SAMPLES * mem::size_of::<u16>();
+
+pub const MODES_RAWOUT_BUF_SIZE: usize = 1500;
+pub const MODES_RAWOUT_BUF_FLUSH: usize = MODES_RAWOUT_BUF_SIZE - 200;
+pub const MODES_RAWOUT_BUF_RATE: c_int = 1000; // 1000 * 64mS = 1 Min approx
+
+pub const MODES_ICAO_CACHE_LEN: u32 = 1024; // Value must be a power of two
+const MODES_ICAO_CACHE_TTL: u64 = 60; // Time to live of cached addresses
+const MODES_UNIT_FEET: c_int = 0;
+const MODES_UNIT_METERS: c_int = 1;
+
+const MODES_ACFLAGS_LATLON_VALID: c_int = 1 << 0; // Aircraft Lat/Lon is decoded
+const MODES_ACFLAGS_ALTITUDE_VALID: c_int = 1 << 1; // Aircraft altitude is known
+const MODES_ACFLAGS_HEADING_VALID: c_int = 1 << 2; // Aircraft heading is known
+const MODES_ACFLAGS_SPEED_VALID: c_int = 1 << 3; // Aircraft speed is known
+const MODES_ACFLAGS_VERTRATE_VALID: c_int = 1 << 4; // Aircraft vertical rate is known
+const MODES_ACFLAGS_SQUAWK_VALID: c_int = 1 << 5; // Aircraft Mode A Squawk is known
+const MODES_ACFLAGS_CALLSIGN_VALID: c_int = 1 << 6; // Aircraft Callsign Identity
+const MODES_ACFLAGS_EWSPEED_VALID: c_int = 1 << 7; // Aircraft East West Speed is known
+const MODES_ACFLAGS_NSSPEED_VALID: c_int = 1 << 8; // Aircraft North South Speed is known
+const MODES_ACFLAGS_AOG: c_int = 1 << 9; // Aircraft is On the Ground
+const MODES_ACFLAGS_LLEVEN_VALID: c_int = 1 << 10; // Aircraft Even Lot/Lon is known
+const MODES_ACFLAGS_LLODD_VALID: c_int = 1 << 11; // Aircraft Odd Lot/Lon is known
+const MODES_ACFLAGS_AOG_VALID: c_int = 1 << 12; // MODES_ACFLAGS_AOG is valid
+                                                // const MODES_ACFLAGS_FS_VALID: c_int = 1 << 13; // Aircraft Flight Status is known
+                                                // const MODES_ACFLAGS_NSEWSPD_VALID: c_int = 1 << 14; // Aircraft EW and NS Speed is known
+const MODES_ACFLAGS_LATLON_REL_OK: c_int = 1 << 15; // Indicates it's OK to do a relative CPR
+
+const MODES_ACFLAGS_LLEITHER_VALID: c_int = MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID;
+const MODES_ACFLAGS_LLBOTH_VALID: c_int = MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID;
+// const MODES_ACFLAGS_AOG_GROUND: c_int = MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
+
+const MODES_DEBUG_DEMOD: c_int = 1 << 0;
+const MODES_DEBUG_DEMODERR: c_int = 1 << 1;
+const MODES_DEBUG_BADCRC: c_int = 1 << 2;
+const MODES_DEBUG_GOODCRC: c_int = 1 << 3;
+const MODES_DEBUG_NOPREAMBLE: c_int = 1 << 4;
+// const MODES_DEBUG_NET: c_int = 1<<5;
+// const MODES_DEBUG_JS: c_int = 1<<6;
+
+// When debug is set to MODES_DEBUG_NOPREAMBLE, the first sample must be
+// at least greater than a given level for us to dump the signal.
+const MODES_DEBUG_NOPREAMBLE_LEVEL: c_int = 25;
+
+pub const NERRORINFO: usize =
+    (MODES_LONG_MSG_BITS + MODES_LONG_MSG_BITS * (MODES_LONG_MSG_BITS - 1) / 2) as usize;
 
 pub type time_t = c_long;
 
@@ -113,7 +211,7 @@ pub struct client {
     pub fd: c_int,
     pub service: c_int,
     pub buflen: c_int,
-    pub buf: [c_char; MODES_CLIENT_BUF_SIZE + 1],
+    pub buf: [c_char; MODES_CLIENT_BUF_SIZE as usize + 1],
 }
 
 #[derive(Copy, Clone)]
