@@ -2394,6 +2394,16 @@ pub extern "C" fn cprNLFunction(mut lat: c_double) -> c_int {
     };
 }
 
+#[no_mangle]
+pub extern "C" fn cprNFunction(lat: c_double, fflag: c_int) -> c_int {
+    let nl = cprNLFunction(lat) - if fflag != 0 { 1 } else { 0 };
+    if nl < 1 {
+        1
+    } else {
+        nl
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
