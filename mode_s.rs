@@ -2515,6 +2515,114 @@ pub unsafe extern "C" fn decodeCPR(
     0
 }
 
+// This algorithm comes from:
+// 1090-WP29-07-Draft_CPR101 (which also defines decodeCPR() )
+//
+// There is an error in this document related to CPR relative decode.
+// Should use trunc() rather than the floor() function in Eq 38 and related for deltaZI.
+// floor() returns integer less than argument
+// trunc() returns integer closer to zero than argument.
+// Note:   text of document describes trunc() functionality for deltaZI calculation
+//         but the formulae use floor().
+//
+#[no_mangle]
+pub unsafe extern "C" fn decodeCPRrelative(
+    Modes: &modes,
+    a: *mut aircraft,
+    fflag: c_int,
+    surface: c_int,
+) -> c_int {
+    let mut AirDlat: c_double = 0.;
+    let mut AirDlon: c_double = 0.;
+    let mut lat: c_double = 0.;
+    let mut lon: c_double = 0.;
+    let mut lonr: c_double = 0.;
+    let mut latr: c_double = 0.;
+    let mut rlon: c_double = 0.;
+    let mut rlat: c_double = 0.;
+    let mut j: c_int = 0;
+    let mut m: c_int = 0;
+
+    if (*a).bFlags & MODES_ACFLAGS_LATLON_REL_OK != 0 {
+        // Ok to try aircraft relative first
+        latr = (*a).lat;
+        lonr = (*a).lon
+    } else if Modes.bUserFlags & MODES_USER_LATLON_VALID != 0 {
+        // Try ground station relative next
+        latr = Modes.fUserLat;
+        lonr = Modes.fUserLon
+    } else {
+        // Exit with error - can't do relative if we don't have ref.
+        return -1;
+    }
+
+    if fflag != 0 {
+        // odd
+        AirDlat = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 59.0f64;
+        lat = (*a).odd_cprlat as c_double;
+        lon = (*a).odd_cprlon as c_double
+    } else {
+        // even
+        AirDlat = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 60.0f64;
+        lat = (*a).even_cprlat as c_double;
+        lon = (*a).even_cprlon as c_double
+    }
+
+    // Compute the Latitude Index "j"
+    j = ((latr / AirDlat).floor()
+        + (0.5f64 + cprModFunction(latr as c_int, AirDlat as c_int) as c_double / AirDlat
+            - lat / 131072 as c_int as c_double)
+            .trunc()) as c_int;
+    rlat = AirDlat * (j as c_double + lat / 131072 as c_int as c_double);
+    if rlat >= 270 as c_int as c_double {
+        rlat -= 360 as c_int as c_double
+    }
+
+    // Check to see that the latitude is in range: -90 .. +90
+    if rlat < -(90 as c_int) as c_double || rlat > 90 as c_int as c_double {
+        // This will cause a quick exit next time if no global has been done
+        // Time to give up - Latitude error
+        (*a).bFlags &= !MODES_ACFLAGS_LATLON_REL_OK;
+        return -1;
+    }
+
+    // Check to see that answer is reasonable - ie no more than 1/2 cell away
+    if (rlat - (*a).lat).abs() > AirDlat / 2 as c_int as c_double {
+        // This will cause a quick exit next time if no global has been done
+        // Time to give up - Latitude error
+        (*a).bFlags &= !MODES_ACFLAGS_LATLON_REL_OK;
+        return -1;
+    }
+
+    // Compute the Longitude Index "m"
+    AirDlon = cprDlonFunction(rlat, fflag, surface);
+    m = ((lonr / AirDlon).floor()
+        + (0.5f64 + cprModFunction(lonr as c_int, AirDlon as c_int) as c_double / AirDlon
+            - lon / 131072 as c_int as c_double)
+            .trunc()) as c_int;
+    rlon = AirDlon * (m as c_double + lon / 131072 as c_int as c_double);
+    if rlon > 180 as c_int as c_double {
+        rlon -= 360 as c_int as c_double
+    }
+
+    // Check to see that answer is reasonable - ie no more than 1/2 cell away
+    if (rlon - (*a).lon).abs() > AirDlon / 2 as c_int as c_double {
+        // This will cause a quick exit next time if no global has been done
+        // Time to give up - Longitude error
+        (*a).bFlags &= !MODES_ACFLAGS_LATLON_REL_OK;
+        return -1;
+    }
+
+    (*a).lat = rlat;
+    (*a).lon = rlon;
+
+    (*a).seenLatLon = (*a).seen;
+    (*a).timestampLatLon = (*a).timestamp;
+    (*a).bFlags |= MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK;
+
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
