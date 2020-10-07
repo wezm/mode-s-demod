@@ -4,6 +4,7 @@ use std::os::raw::{
     c_char, c_double, c_int, c_long, c_longlong, c_short, c_uchar, c_uint, c_ulong, c_ulonglong,
     c_ushort, c_void,
 };
+use std::time::SystemTime;
 use std::{mem, ptr, time};
 
 mod io;
@@ -436,4 +437,11 @@ pub struct modesMessage {
     pub altitude: c_int,
     pub unit: c_int,
     pub bFlags: c_int, // Flags related to fields in this structure
+}
+
+fn now() -> u64 {
+    match SystemTime::now().duration_since(time::UNIX_EPOCH) {
+        Ok(n) => n.as_secs(),
+        Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+    }
 }

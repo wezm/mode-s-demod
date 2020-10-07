@@ -2404,6 +2404,117 @@ pub extern "C" fn cprNFunction(lat: c_double, fflag: c_int) -> c_int {
     }
 }
 
+#[no_mangle]
+pub extern "C" fn cprDlonFunction(lat: c_double, fflag: c_int, surface: c_int) -> c_double {
+    (if surface != 0 { 90.0f64 } else { 360.0f64 }) / cprNFunction(lat, fflag) as c_double
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn decodeCPR(
+    Modes: &modes,
+    a: *mut aircraft,
+    fflag: c_int,
+    surface: c_int,
+) -> c_int {
+    let mut AirDlat0 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 60.0f64;
+    let mut AirDlat1 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 59.0f64;
+    let mut lat0 = (*a).even_cprlat as c_double;
+    let mut lat1 = (*a).odd_cprlat as c_double;
+    let mut lon0 = (*a).even_cprlon as c_double;
+    let mut lon1 = (*a).odd_cprlon as c_double;
+
+    // Compute the Latitude Index "j"
+    let mut j = ((59 as c_int as c_double * lat0 - 60 as c_int as c_double * lat1)
+        / 131072 as c_int as c_double
+        + 0.5f64)
+        .floor() as c_int;
+    let mut rlat0 = AirDlat0
+        * (cprModFunction(j, 60 as c_int) as c_double + lat0 / 131072 as c_int as c_double);
+    let mut rlat1 = AirDlat1
+        * (cprModFunction(j, 59 as c_int) as c_double + lat1 / 131072 as c_int as c_double);
+
+    let mut now = crate::now() as i64;
+    let mut surface_rlat = MODES_USER_LATITUDE_DFLT;
+    let mut surface_rlon = MODES_USER_LONGITUDE_DFLT;
+
+    if surface != 0 {
+        // If we're on the ground, make sure we have a (likely) valid Lat/Lon
+        if (*a).bFlags & MODES_ACFLAGS_LATLON_VALID != 0
+            && ((now - (*a).seenLatLon) as c_int) < Modes.interactive_display_ttl
+        {
+            surface_rlat = (*a).lat;
+            surface_rlon = (*a).lon
+        } else if Modes.bUserFlags & MODES_USER_LATLON_VALID != 0 {
+            surface_rlat = Modes.fUserLat;
+            surface_rlon = Modes.fUserLon
+        } else {
+            // No local reference, give up
+            return -1;
+        }
+        rlat0 += (surface_rlat / 90.0f64).floor() * 90.0f64; // Move from 1st quadrant to our quadrant
+        rlat1 += (surface_rlat / 90.0f64).floor() * 90.0f64
+    } else {
+        if rlat0 >= 270 as c_int as c_double {
+            rlat0 -= 360 as c_int as c_double
+        }
+        if rlat1 >= 270 as c_int as c_double {
+            rlat1 -= 360 as c_int as c_double
+        }
+    }
+
+    // Check to see that the latitude is in range: -90 .. +90
+    if rlat0 < -(90 as c_int) as c_double
+        || rlat0 > 90 as c_int as c_double
+        || rlat1 < -(90 as c_int) as c_double
+        || rlat1 > 90 as c_int as c_double
+    {
+        return -1;
+    }
+
+    // Check that both are in the same latitude zone, or abort.
+    if cprNLFunction(rlat0) != cprNLFunction(rlat1) {
+        return -1;
+    }
+
+    // Compute ni and the Longitude Index "m"
+    if fflag != 0 {
+        // Use odd packet.
+        let mut ni = cprNFunction(rlat1, 1 as c_int); // Use even packet.
+        let mut m = ((lon0 * (cprNLFunction(rlat1) - 1 as c_int) as c_double
+            - lon1 * cprNLFunction(rlat1) as c_double)
+            / 131072.0f64
+            + 0.5f64)
+            .floor() as c_int;
+        (*a).lon = cprDlonFunction(rlat1, 1 as c_int, surface)
+            * (cprModFunction(m, ni) as c_double + lon1 / 131072 as c_int as c_double);
+        (*a).lat = rlat1
+    } else {
+        // Use even packet
+        let mut ni_0 = cprNFunction(rlat0, 0 as c_int);
+        let mut m_0 = ((lon0 * (cprNLFunction(rlat0) - 1 as c_int) as c_double
+            - lon1 * cprNLFunction(rlat0) as c_double)
+            / 131072 as c_int as c_double
+            + 0.5f64)
+            .floor() as c_int;
+        (*a).lon = cprDlonFunction(rlat0, 0 as c_int, surface)
+            * (cprModFunction(m_0, ni_0) as c_double + lon0 / 131072 as c_int as c_double);
+        (*a).lat = rlat0
+    }
+
+    if surface != 0 {
+        // Move from 1st quadrant to our quadrant
+        (*a).lon += (surface_rlon / 90.0f64).floor() * 90.0f64
+    } else if (*a).lon > 180 as c_int as c_double {
+        (*a).lon -= 360 as c_int as c_double
+    }
+
+    (*a).seenLatLon = (*a).seen;
+    (*a).timestampLatLon = (*a).timestamp;
+    (*a).bFlags |= MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK;
+
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
