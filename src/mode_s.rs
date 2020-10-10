@@ -86,8 +86,7 @@ pub struct errorinfo {
 }
 
 // TODO: Change input to have a known length so we can get rid of pointer derefs and unsafe
-#[no_mangle]
-pub unsafe extern "C" fn modesChecksum(mut msg: *mut c_uchar, mut bits: c_int) -> u32 {
+pub unsafe fn modesChecksum(mut msg: *mut c_uchar, mut bits: c_int) -> u32 {
     let mut crc: u32 = 0;
     let mut offset = if bits == 112 { 0 } else { 112 - 56 };
     let mut the_byte: u8 = *msg;
@@ -121,8 +120,7 @@ pub unsafe extern "C" fn modesChecksum(mut msg: *mut c_uchar, mut bits: c_int) -
 // All known DF's 16 or greater are long. All known DF's 15 or less are short.
 // There are lots of unused codes in both category, so we can assume ICAO will stick to
 // these rules, meaning that the most significant bit of the DF indicates the length.
-#[no_mangle]
-pub extern "C" fn modesMessageLenByType(type_: c_int) -> c_int {
+pub fn modesMessageLenByType(type_: c_int) -> c_int {
     if type_ & 0x10 == 0x10 {
         MODES_LONG_MSG_BITS
     } else {
@@ -137,8 +135,7 @@ pub extern "C" fn modesMessageLenByType(type_: c_int) -> c_int {
 // must be of length at least maxcorrected.
 // Return number of fixed bits.
 //
-#[no_mangle]
-pub unsafe extern "C" fn fixBitErrorsImpl(
+pub unsafe fn fixBitErrorsImpl(
     msg: *mut c_uchar,
     bits: c_int,
     maxfix: c_int,
@@ -190,8 +187,7 @@ pub unsafe extern "C" fn fixBitErrorsImpl(
 
 // Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
 // elements, that is assumed to be a power of two
-#[no_mangle]
-pub unsafe extern "C" fn ICAOCacheHashAddress(mut a: u32) -> u32 {
+pub unsafe fn ICAOCacheHashAddress(mut a: u32) -> u32 {
     // The following three rounds wil make sure that every bit affects
     // every output bit with ~ 50% of probability.
     a = (a >> 16 as c_int ^ a).wrapping_mul(0x45d9f3b as c_int as c_uint);
@@ -204,8 +200,7 @@ pub unsafe extern "C" fn ICAOCacheHashAddress(mut a: u32) -> u32 {
 // Note that we also add a timestamp so that we can make sure that the
 // entry is only valid for MODES_ICAO_CACHE_TTL seconds.
 //
-#[no_mangle]
-pub unsafe extern "C" fn addRecentlySeenICAOAddrImpl(this: *mut modes, addr: u32) {
+pub unsafe fn addRecentlySeenICAOAddrImpl(this: *mut modes, addr: u32) {
     let h: u32 = ICAOCacheHashAddress(addr);
     *(*this)
         .icao_cache
@@ -222,8 +217,7 @@ pub unsafe extern "C" fn addRecentlySeenICAOAddrImpl(this: *mut modes, addr: u32
 // proper checksum (not xored with address) no more than * MODES_ICAO_CACHE_TTL
 // seconds ago. Otherwise returns 0.
 //
-#[no_mangle]
-pub unsafe extern "C" fn ICAOAddressWasRecentlySeenImpl(this: *const modes, addr: u32) -> c_int {
+pub unsafe fn ICAOAddressWasRecentlySeenImpl(this: *const modes, addr: u32) -> c_int {
     let h: u32 = ICAOCacheHashAddress(addr);
     let a: u32 = *(*this).icao_cache.offset(h.wrapping_mul(2) as isize);
     let t: u32 = *(*this)
@@ -246,8 +240,7 @@ pub unsafe extern "C" fn ICAOAddressWasRecentlySeenImpl(this: *const modes, addr
 // For more info: http://en.wikipedia.org/wiki/Gillham_code
 //
 #[rustfmt::skip]
-#[no_mangle]
-pub extern "C" fn decodeID13Field(ID13Field: c_int) -> c_int {
+pub fn decodeID13Field(ID13Field: c_int) -> c_int {
     let mut hexGillham = 0;
     if ID13Field & 0x1000 != 0 { hexGillham |= 0x0010 } // Bit 12 = C1
     if ID13Field & 0x0800 != 0 { hexGillham |= 0x1000 } // Bit 11 = A1
@@ -269,8 +262,7 @@ pub extern "C" fn decodeID13Field(ID13Field: c_int) -> c_int {
 // Decode the 13 bit AC altitude field (in DF 20 and others).
 // Returns the altitude, and set 'unit' to either MODES_UNIT_METERS or MDOES_UNIT_FEETS.
 //
-#[no_mangle]
-pub unsafe extern "C" fn decodeAC13Field(AC13Field: c_int, unit: *mut c_int) -> c_int {
+pub unsafe fn decodeAC13Field(AC13Field: c_int, unit: *mut c_int) -> c_int {
     let m_bit = (AC13Field & 0x40) != 0; // set = meters, clear = feet
     let q_bit = (AC13Field & 0x10) != 0; // set = 25 ft encoding, clear = Gillham Mode C encoding
     if !m_bit {
@@ -297,8 +289,7 @@ pub unsafe extern "C" fn decodeAC13Field(AC13Field: c_int, unit: *mut c_int) -> 
 
 // Decode the 12 bit AC altitude field (in DF 17 and others).
 //
-#[no_mangle]
-pub unsafe extern "C" fn decodeAC12Field(AC12Field: c_int, unit: *mut c_int) -> c_int {
+pub unsafe fn decodeAC12Field(AC12Field: c_int, unit: *mut c_int) -> c_int {
     let q_bit = (AC12Field & 0x10) != 0; // Bit 48 = Q
     *unit = MODES_UNIT_FEET;
     if q_bit {
@@ -320,8 +311,7 @@ pub unsafe extern "C" fn decodeAC12Field(AC12Field: c_int, unit: *mut c_int) -> 
 // FIXME: this function has no test coverage
 // Decode the 7 bit ground movement field PWL exponential style scale
 //
-#[no_mangle]
-pub unsafe extern "C" fn decodeMovementField(movement: c_int) -> c_int {
+pub unsafe fn decodeMovementField(movement: c_int) -> c_int {
     // Note: movement codes 0,125,126,127 are all invalid, but they are
     //       trapped before this function is called.
     // FIXME: Capture above in types
@@ -339,8 +329,7 @@ pub unsafe extern "C" fn decodeMovementField(movement: c_int) -> c_int {
 // Decode a raw Mode S message demodulated as a stream of bytes by detectModeS(),
 // and split it into fields populating a modesMessage structure.
 //
-#[no_mangle]
-pub unsafe extern "C" fn decodeModesMessageImpl(
+pub unsafe fn decodeModesMessageImpl(
     mut mm: *mut modesMessage,
     msg: *const c_uchar,
     Modes: *mut modes,
@@ -1315,7 +1304,6 @@ static FLIGHT_STATUSES: [&str; 8] = [
 // Emergency state table
 // from https://www.ll.mit.edu/mission/aviation/publications/publication-files/atc-reports/Grappel_2007_ATC-334_WW-15318.pdf
 // and 1090-DO-260B_FRAC
-#[no_mangle]
 static EMERGENCY_STATES: [&str; 8] = [
     "No emergency",
     "General emergency (squawk 7700)",
@@ -1370,8 +1358,7 @@ impl modesMessage {
 // Turn I/Q samples pointed by Modes.data into the magnitude vector
 // pointed by Modes.magnitude.
 //
-#[no_mangle]
-pub unsafe extern "C" fn computeMagnitudeVectorImpl(mut p: *mut u16, Modes: *mut modes) {
+pub unsafe fn computeMagnitudeVectorImpl(mut p: *mut u16, Modes: *mut modes) {
     let mut m: *mut u16 = (*Modes)
         .magnitude
         .offset((MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES) as isize)
@@ -1403,8 +1390,7 @@ pub unsafe extern "C" fn computeMagnitudeVectorImpl(mut p: *mut u16, Modes: *mut
 // Note: this function will access pPreamble[-1], so the caller should make sure to
 // call it only if we are not at the start of the current buffer
 //
-#[no_mangle]
-pub unsafe extern "C" fn detectOutOfPhase(pPreamble: *const u16) -> c_int {
+pub unsafe fn detectOutOfPhase(pPreamble: *const u16) -> c_int {
     if *pPreamble.offset(3) > *pPreamble.offset(2) / 3 {
         return 1;
     }
@@ -1421,8 +1407,7 @@ pub unsafe extern "C" fn detectOutOfPhase(pPreamble: *const u16) -> c_int {
     0
 }
 
-#[no_mangle]
-pub extern "C" fn clamped_scale(v: u16, scale: u16) -> u16 {
+pub fn clamped_scale(v: u16, scale: u16) -> u16 {
     u16::try_from(u32::from(v) * u32::from(scale) / 16384).unwrap_or(std::u16::MAX)
 }
 
@@ -1438,8 +1423,7 @@ pub extern "C" fn clamped_scale(v: u16, scale: u16) -> u16 {
 // pPayload[0] should be the start of the preamble,
 // pPayload[-1 .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] should be accessible.
 // pPayload[MODES_PREAMBLE_SAMPLES .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] will be updated.
-#[no_mangle]
-pub unsafe extern "C" fn applyPhaseCorrection(pPayload: *mut u16) {
+pub unsafe fn applyPhaseCorrection(pPayload: *mut u16) {
     // we expect 1 bits at 0, 2, 7, 9
     // and 0 bits at -1, 1, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14
     // use bits -1,6 for early detection (bit 0/7 arrived a little early, our sample period starts after the bit phase so we include some of the next bit)
@@ -1532,8 +1516,7 @@ pub unsafe extern "C" fn applyPhaseCorrection(pPayload: *mut u16) {
 // size 'mlen' bytes. Every detected Mode S message is convert it into a
 // stream of bits and passed to the function to display it.
 //
-#[no_mangle]
-pub unsafe extern "C" fn detectModeSImpl(
+pub unsafe fn detectModeSImpl(
     m: *mut u16,
     mlen: u32,
     Modes: *mut modes,
@@ -2096,8 +2079,7 @@ pub unsafe extern "C" fn detectModeSImpl(
 // Basically this function passes a raw message to the upper layers for further
 // processing and visualization
 //
-#[no_mangle]
-pub unsafe extern "C" fn useModesMessage(Modes: *mut modes, mm: *mut modesMessage) {
+pub unsafe fn useModesMessage(Modes: *mut modes, mm: *mut modesMessage) {
     if (*Modes).check_crc == 0 || (*mm).crcok != 0 || (*mm).correctedbits != 0 {
         // not checking, ok or fixed
 
@@ -2121,8 +2103,7 @@ pub unsafe extern "C" fn useModesMessage(Modes: *mut modes, mm: *mut modesMessag
 
 // Always positive MOD operation, used for CPR decoding.
 //
-#[no_mangle]
-pub extern "C" fn cprModFunction(a: c_int, b: c_int) -> c_int {
+pub fn cprModFunction(a: c_int, b: c_int) -> c_int {
     let res = a % b;
     if res < 0 {
         res + b
@@ -2133,8 +2114,7 @@ pub extern "C" fn cprModFunction(a: c_int, b: c_int) -> c_int {
 
 // The NL function uses the precomputed table from 1090-WP-9-14
 //
-#[no_mangle]
-pub extern "C" fn cprNLFunction(mut lat: c_double) -> c_int {
+pub fn cprNLFunction(mut lat: c_double) -> c_int {
     if lat < 0.0 {
         // Table is symmetric about the equator
         lat = -lat
@@ -2317,8 +2297,7 @@ pub extern "C" fn cprNLFunction(mut lat: c_double) -> c_int {
     };
 }
 
-#[no_mangle]
-pub extern "C" fn cprNFunction(lat: c_double, fflag: c_int) -> c_int {
+pub fn cprNFunction(lat: c_double, fflag: c_int) -> c_int {
     let nl = cprNLFunction(lat) - if fflag != 0 { 1 } else { 0 };
     if nl < 1 {
         1
@@ -2327,13 +2306,11 @@ pub extern "C" fn cprNFunction(lat: c_double, fflag: c_int) -> c_int {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn cprDlonFunction(lat: c_double, fflag: c_int, surface: c_int) -> c_double {
+pub fn cprDlonFunction(lat: c_double, fflag: c_int, surface: c_int) -> c_double {
     (if surface != 0 { 90.0f64 } else { 360.0f64 }) / cprNFunction(lat, fflag) as c_double
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn decodeCPR(
+pub unsafe fn decodeCPR(
     Modes: &modes,
     a: *mut aircraft,
     fflag: c_int,
@@ -2448,8 +2425,7 @@ pub unsafe extern "C" fn decodeCPR(
 // Note:   text of document describes trunc() functionality for deltaZI calculation
 //         but the formulae use floor().
 //
-#[no_mangle]
-pub unsafe extern "C" fn decodeCPRrelative(
+pub unsafe fn decodeCPRrelative(
     Modes: &modes,
     a: *mut aircraft,
     fflag: c_int,

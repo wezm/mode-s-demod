@@ -551,8 +551,7 @@ fn cmp_errorinfo(e0: &errorinfo, e1: &errorinfo) -> Ordering {
     e0.syndrome.cmp(&e1.syndrome)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn modesInitErrorInfoC(
+pub unsafe fn modesInitErrorInfoC(
     table_ptr: *mut errorinfo,
     table_len: c_int,
     nfix_crc: c_int,

@@ -25,7 +25,6 @@ pub const MODEAC_MSG_MODEC_OLD: c_int = 1 << 5;
 // these bits cause bits (31-16) in ModeABits to be set. Then at the end of message
 // processing we can test for errors by looking at these bits.
 //
-#[no_mangle]
 pub static mut ModeABitTable: [u32; 24] = [
     0x00000000, // F1 = 1
     0x00000010, // C1
@@ -61,7 +60,6 @@ pub static mut ModeABitTable: [u32; 24] = [
 // any inter-bit anomalies, and the bits that are set will show which
 // bits had them.
 //
-#[no_mangle]
 pub static mut ModeAMidTable: [u32; 24] = [
     0x80000000, // F1 = 1  Set bit 31 if we see F1_C1  error
     0x00000010, // C1      Set bit  4 if we see C1_A1  error
@@ -117,8 +115,7 @@ pub static mut ModeAMidTable: [u32; 24] = [
 // add the values together..
 //
 #[rustfmt::skip]
-#[no_mangle]
-pub unsafe extern "C" fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
+pub unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
     let mut ModeABits = 0;
     let mut ModeAErrs = 0;
     let mut bit: c_int;
@@ -328,8 +325,7 @@ pub unsafe extern "C" fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_in
 // Input format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
 //
 #[rustfmt::skip]
-#[no_mangle]
-pub extern "C" fn ModeAToModeC(ModeA: c_uint) -> c_int {
+pub fn ModeAToModeC(ModeA: c_uint) -> c_int {
     let mut FiveHundreds: c_uint = 0;
     let mut OneHundreds: c_uint = 0;
 
@@ -371,8 +367,7 @@ pub extern "C" fn ModeAToModeC(ModeA: c_uint) -> c_int {
         .wrapping_sub(13) as c_int;
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn decodeModeAMessage(mm: *mut modesMessage, ModeA: c_int) {
+pub unsafe fn decodeModeAMessage(mm: *mut modesMessage, ModeA: c_int) {
     (*mm).msgtype = 32; // Valid Mode S DF's are DF-00 to DF-31.
                         // so use 32 to indicate Mode A/C
 

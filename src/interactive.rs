@@ -16,8 +16,7 @@ use crate::{
 const MODEAC_MSG_MODEA_HIT: c_int = (1 as c_int) << 2 as c_int;
 const MODEAC_MSG_MODEC_HIT: c_int = (1 as c_int) << 3 as c_int;
 
-#[no_mangle]
-pub unsafe extern "C" fn interactiveReceiveDataImpl(
+pub unsafe fn interactiveReceiveDataImpl(
     Modes: *mut modes,
     mm: *mut modesMessage,
 ) -> *mut aircraft {
@@ -202,8 +201,7 @@ pub unsafe fn interactiveReceiveData(Modes: &mut modes, mm: *mut modesMessage) -
 // Return a new aircraft structure for the interactive mode linked list
 // of aircraft
 //
-#[no_mangle]
-pub unsafe extern "C" fn interactiveCreateAircraft(mut mm: *mut modesMessage) -> *mut aircraft {
+pub unsafe fn interactiveCreateAircraft(mut mm: *mut modesMessage) -> *mut aircraft {
     let mut a = Box::new(aircraft {
         addr: (*mm).addr,
         flight: [0; 16],
@@ -254,8 +252,7 @@ pub unsafe extern "C" fn interactiveCreateAircraft(mut mm: *mut modesMessage) ->
 // Return the aircraft with the specified address, or NULL if no aircraft
 // exists with this address.
 //
-#[no_mangle]
-pub unsafe extern "C" fn interactiveFindAircraft(Modes: *const modes, addr: u32) -> *mut aircraft {
+pub unsafe fn interactiveFindAircraft(Modes: *const modes, addr: u32) -> *mut aircraft {
     let mut a = (*Modes).aircrafts;
     while !a.is_null() {
         if (*a).addr == addr {
