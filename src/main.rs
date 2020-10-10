@@ -5,7 +5,6 @@ use io::BufReader;
 
 use std::fs::File;
 use std::io::Read;
-use std::os::raw::c_int;
 use std::{env, io, mem, process};
 
 use ten_ninety::{
@@ -57,8 +56,7 @@ fn main() -> Result<(), io::Error> {
             detect_mode_s(
                 &mut magnitude[0..MODES_ASYNC_BUF_SAMPLES],
                 &mut state as *mut _,
-                bit_error_table.as_ptr(),
-                bit_error_table.len() as c_int,
+                &bit_error_table,
             );
         }
         mem::swap(&mut state.magnitude, &mut magnitude);

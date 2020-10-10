@@ -140,10 +140,8 @@ unsafe fn fix_bit_errors(
     bits: c_int,
     maxfix: c_int,
     fixedbits: *mut c_char,
-    table_ptr: *const errorinfo,
-    table_len: c_int,
+    bit_error_table: &[errorinfo],
 ) -> c_int {
-    let bit_error_table = &*ptr::slice_from_raw_parts(table_ptr, table_len as usize);
     let mut bitpos;
     let syndrome = mode_s_checksum(msg, bits);
     let ei = match bit_error_table.binary_search_by(|e| e.syndrome.cmp(&syndrome)) {
@@ -333,8 +331,7 @@ unsafe fn decode_mode_s_message(
     mut mm: *mut ModesMessage,
     msg: *const c_uchar,
     mode_s: *mut ModeS,
-    bit_errors_ptr: *const errorinfo,
-    bit_errors_len: c_int,
+    bit_errors: &[errorinfo],
 ) {
     let ais_charset = b"?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????\x00";
 
@@ -364,8 +361,7 @@ unsafe fn decode_mode_s_message(
             (*mm).msgbits,
             (*mode_s).nfix_crc,
             (*mm).corrected.as_mut_ptr(),
-            bit_errors_ptr,
-            bit_errors_len,
+            bit_errors,
         );
 
         // If we correct, validate ICAO addr to help filter birthday paradox solutions.
@@ -1522,12 +1518,7 @@ unsafe fn apply_phase_correction(p_payload: *mut u16) {
 // size 'mlen' bytes. Every detected Mode S message is convert it into a
 // stream of bits and passed to the function to display it.
 //
-pub unsafe fn detect_mode_s(
-    m: &mut [u16],
-    mode_s: *mut ModeS,
-    bit_errors_ptr: *const errorinfo,
-    bit_errors_len: c_int,
-) {
+pub unsafe fn detect_mode_s(m: &mut [u16], mode_s: *mut ModeS, bit_errors: &[errorinfo]) {
     let mlen = m.len() as u32; // FIXME cast
     let m = m.as_mut_ptr();
     let mut mm: ModesMessage = ModesMessage::default();
@@ -1875,13 +1866,7 @@ pub unsafe fn detect_mode_s(
                     mm.phase_corrected = use_correction;
 
                     // Decode the received message
-                    decode_mode_s_message(
-                        &mut mm,
-                        msg.as_mut_ptr(),
-                        mode_s,
-                        bit_errors_ptr,
-                        bit_errors_len,
-                    );
+                    decode_mode_s_message(&mut mm, msg.as_mut_ptr(), mode_s, bit_errors);
 
                     // Update statistics
                     if (*mode_s).stats != 0 {
