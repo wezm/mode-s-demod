@@ -2029,16 +2029,16 @@ pub unsafe fn detect_mode_s(
 // Basically this function passes a raw message to the upper layers for further
 // processing and visualization
 //
-unsafe fn use_modes_message(mode_s: *mut ModeS, mm: *mut ModesMessage) {
-    if (*mode_s).check_crc == 0 || (*mm).crcok != 0 || (*mm).correctedbits != 0 {
+fn use_modes_message(mode_s: &mut ModeS, mm: &mut ModesMessage) {
+    if mode_s.check_crc == 0 || mm.crcok != 0 || mm.correctedbits != 0 {
         // not checking, ok or fixed
 
         // Always track Aircraft
-        interactive_receive_data(&mut (*mode_s), &mut *mm);
+        interactive_receive_data(mode_s, mm);
 
         // In non-interactive non-quiet mode, display messages on standard output
-        if (*mode_s).interactive == 0 && (*mode_s).quiet == 0 {
-            display_modes_message(&*mode_s, &*mm);
+        if mode_s.interactive == 0 && mode_s.quiet == 0 {
+            display_modes_message(mode_s, mm);
         }
     };
 }
