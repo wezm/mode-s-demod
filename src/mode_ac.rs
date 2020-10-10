@@ -5,13 +5,9 @@ use crate::ModesMessage;
 // ===================== Mode A/C detection and decoding  ===================
 
 pub const MODEAC_MSG_SAMPLES: u32 = 25 * 2; // include up to the SPI bit
-                                            // const MODEAC_MSG_BYTES: c_int = 2;
 const MODES_ACFLAGS_SQUAWK_VALID: c_int = 1 << 5;
 const MODEAC_MSG_SQUELCH_LEVEL: c_int = 0x07FF; // Average signal strength limit
 pub(crate) const MODEAC_MSG_FLAG: c_int = 1 << 0;
-// const MODEAC_MSG_MODES_HIT: c_int = 1 << 1;
-// const MODEAC_MSG_MODEA_HIT: c_int = 1 << 2;
-// const MODEAC_MSG_MODEC_HIT: c_int = 1 << 3;
 pub const MODEAC_MSG_MODEA_ONLY: c_int = 1 << 4;
 pub const MODEAC_MSG_MODEC_OLD: c_int = 1 << 5;
 
@@ -114,8 +110,9 @@ pub static mut MODE_AMID_TABLE: [u32; 24] = [
 // in two adjacent samples must be from the same pulse, so we can simply
 // add the values together..
 //
+// Returns the number of mode A bits.
 #[rustfmt::skip]
-pub(crate) unsafe fn detect_mode_a(m: *mut u16, mm: *mut ModesMessage) -> c_int {
+pub(crate) unsafe fn detect_mode_a(m: *const u16, mm: &mut ModesMessage) -> c_int {
     let mut mode_a_bits = 0;
     let mut mode_a_errs = 0;
     let mut bit: c_int;
@@ -316,6 +313,7 @@ pub(crate) unsafe fn detect_mode_a(m: *mut u16, mm: *mut ModesMessage) -> c_int 
         return mode_a_bits;
     }
 
+    // TODO: Avoid mutating in this "detect" function
     f_sig = f_sig + 0x7f >> 8;
     (*mm).signal_level = if f_sig < 255 { f_sig } else { 255 } as c_uchar;
 
@@ -367,27 +365,27 @@ pub(crate) fn mode_a_to_mode_c(mode_a: c_uint) -> c_int {
         .wrapping_sub(13) as c_int;
 }
 
-pub(crate) unsafe fn decode_mode_a_message(mm: *mut ModesMessage, mode_a: c_int) {
-    (*mm).msgtype = 32; // Valid Mode S DF's are DF-00 to DF-31.
-                        // so use 32 to indicate Mode A/C
+pub(crate) fn decode_mode_a_message(mm: &mut ModesMessage, mode_a: c_int) {
+    mm.msgtype = 32; // Valid Mode S DF's are DF-00 to DF-31.
+                     // so use 32 to indicate Mode A/C
 
-    (*mm).msgbits = 16; // Fudge up a Mode S style data stream
-    (*mm).msg[0] = (mode_a >> 8) as c_uchar;
-    (*mm).msg[1] = mode_a as c_uchar;
+    mm.msgbits = 16; // Fudge up a Mode S style data stream
+    mm.msg[0] = (mode_a >> 8) as c_uchar;
+    mm.msg[1] = mode_a as c_uchar;
 
     // Fudge an ICAO address based on Mode A (remove the Ident bit)
     // Use an upper address byte of FF, since this is ICAO unallocated
-    (*mm).addr = (0xff0000 | mode_a & 0xff7f) as u32;
+    mm.addr = (0xff0000 | mode_a & 0xff7f) as u32;
 
     // Set the Identity field to mode_a
-    (*mm).mode_a = mode_a & 0x7777;
-    (*mm).b_flags |= MODES_ACFLAGS_SQUAWK_VALID;
+    mm.mode_a = mode_a & 0x7777;
+    mm.b_flags |= MODES_ACFLAGS_SQUAWK_VALID;
 
     // Flag ident in flight status
-    (*mm).fs = mode_a & 0x80;
+    mm.fs = mode_a & 0x80;
 
     // Not much else we can tell from a Mode A/C reply.
     // Just fudge up a few bits to keep other code happy
-    (*mm).crcok = 1;
-    (*mm).correctedbits = 0;
+    mm.crcok = 1;
+    mm.correctedbits = 0;
 }
