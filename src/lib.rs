@@ -137,7 +137,6 @@ pub struct ModeS {
     raw: c_int,                       // Raw output format
     mode_ac: c_int,                   // Enable decoding of SSR Modes A & C
     debug: c_int,                     // Debugging mode
-    net: c_int,                       // Enable networking
     net_output_raw_size: c_int,       // Minimum Size of the output raw data
     net_output_raw_rate: c_int,       // Rate (in 64mS increments) of output raw data
     net_output_raw_rate_count: c_int, // Rate (in 64mS increments) of output raw data
@@ -257,7 +256,6 @@ impl Default for ModeS {
             raw: 0,
             mode_ac: 0,
             debug: 0,
-            net: 0,
             net_output_raw_size: 0,
             net_output_raw_rate: 0,
             net_output_raw_rate_count: 0,

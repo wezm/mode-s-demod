@@ -2040,11 +2040,6 @@ unsafe fn use_modes_message(mode_s: *mut ModeS, mm: *mut ModesMessage) {
         if (*mode_s).interactive == 0 && (*mode_s).quiet == 0 {
             display_modes_message(&*mode_s, &*mm);
         }
-
-        // Feed output clients
-        if (*mode_s).net != 0 {
-            // modesQueueOutput(Modes, mm);
-        }
     };
 }
 
