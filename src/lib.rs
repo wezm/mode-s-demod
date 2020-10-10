@@ -78,7 +78,7 @@ pub const NERRORINFO: usize =
 
 type time_t = c_long;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 #[repr(C)]
 struct Aircraft {
     addr: u32,                  // ICAO address
@@ -190,7 +190,7 @@ pub struct ModeS {
     stat_mode_ac: c_uint,
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Clone, Default)]
 #[repr(C)]
 struct ModesMessage {
     msg: [c_uchar; MODES_LONG_MSG_BYTES],     // Binary message.

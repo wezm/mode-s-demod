@@ -2088,7 +2088,7 @@ unsafe fn use_modes_message(mode_s: *mut ModeS, mm: *mut ModesMessage) {
         // not checking, ok or fixed
 
         // Always track Aircraft
-        interactive_receive_data(&mut (*mode_s), mm);
+        interactive_receive_data(&mut (*mode_s), &mut *mm);
 
         // In non-interactive non-quiet mode, display messages on standard output
         if (*mode_s).interactive == 0 && (*mode_s).quiet == 0 {
