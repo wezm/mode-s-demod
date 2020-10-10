@@ -107,9 +107,8 @@ struct Aircraft {
     odd_cprtime: u64,
     even_cprtime: u64,
     lat: c_double,
-    lon: c_double,       // Coordinated obtained from CPR encoded data
-    b_flags: c_int,      // Flags related to valid fields in this structure
-    next: *mut Aircraft, // Next Aircraft in our linked list
+    lon: c_double,  // Coordinated obtained from CPR encoded data
+    b_flags: c_int, // Flags related to valid fields in this structure
 }
 
 // Program global state
@@ -154,7 +153,7 @@ pub struct ModeS {
     b_user_flags: c_int,  // Flags relating to the user details
 
     // Interactive mode
-    aircrafts: *mut Aircraft,
+    aircrafts: Vec<Aircraft>,
 
     // DF List mode
     b_enable_dflogging: c_int, // Set to enable DF Logging
@@ -258,7 +257,7 @@ impl Default for ModeS {
             f_user_lon: MODES_USER_LONGITUDE_DFLT,
 
             b_user_flags: 0,
-            aircrafts: ptr::null_mut(),
+            aircrafts: Vec::new(),
             b_enable_dflogging: 0,
             stat_valid_preamble: 0,
             stat_demodulated0: 0,

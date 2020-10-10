@@ -1,7 +1,7 @@
 use std::convert::TryInto;
-use std::os::raw::{c_char, c_int, c_long, c_uint, c_void};
+use std::os::raw::{c_int, c_long, c_uint};
 use std::time::SystemTime;
-use std::{mem, ptr, time};
+use std::{mem, time};
 
 use crate::mode_ac::{
     mode_a_to_mode_c, MODEAC_MSG_FLAG, MODEAC_MSG_MODEA_ONLY, MODEAC_MSG_MODEC_OLD,
@@ -20,103 +20,100 @@ const MODEAC_MSG_MODEC_HIT: c_int = (1 as c_int) << 3 as c_int;
 
 // Receive new messages and populate the interactive mode with more info
 //
-pub(crate) unsafe fn interactive_receive_data(
-    mode_s: &mut ModeS,
-    mm: &mut ModesMessage,
-) -> *mut Aircraft {
-    let mut a;
-    let mut aux;
-
+pub(crate) fn interactive_receive_data(mode_s: &mut ModeS, mm: &mut ModesMessage) {
     // Return if (checking crc) AND (not crcok) AND (not fixed)
     if mode_s.check_crc != 0 && mm.crcok == 0 as c_int && mm.correctedbits == 0 as c_int {
-        return ptr::null_mut();
+        return;
     }
+
+    let mut aircrafts = Vec::new();
+    mem::swap(&mut mode_s.aircrafts, &mut aircrafts);
 
     // Lookup our Aircraft or create a new one
-    a = interactive_find_aircraft(mode_s, mm.addr);
-    if a.is_null() {
-        // If it's a currently unknown Aircraft....
-        a = interactive_create_aircraft(mm); // ., create a new record for it,
-        (*a).next = mode_s.aircrafts; // .. and put it at the head of the list
-        mode_s.aircrafts = a
-    } else if 0 as c_int != 0 && mode_s.aircrafts != a &&
-        // FIXME: This was disabled (via if 0 in the C code)
-        crate::now() as i64 - (*a).seen >= 1
-    {
-        aux = mode_s.aircrafts;
-        while (*aux).next != a {
-            aux = (*aux).next
+    let a = match interactive_find_aircraft(&mut aircrafts, mm.addr) {
+        Some(aircraft) => aircraft,
+        None => {
+            // If it's a currently unknown Aircraft... create a new record for it,.
+            let a = interactive_create_aircraft(mm);
+            // .. and put it at the head of the list
+            aircrafts.push(a);
+            aircrafts.last_mut().unwrap()
         }
-        /* If it is an already known Aircraft, move it on head
-         * so we keep aircrafts ordered by received message time.
-         *
-         * However move it on head only if at least one second elapsed
-         * since the Aircraft that is currently on head sent a message,
-         * otherwise with multiple aircrafts at the same time we have an
-         * useless shuffle of positions on the screen. */
-        /* Now we are a node before the Aircraft to remove. */
-        (*aux).next = (*(*aux).next).next; /* removed. */
-        /* Add on head */
-        (*a).next = mode_s.aircrafts;
-        mode_s.aircrafts = a
-    }
+    };
 
-    (*a).signal_level[((*a).messages & 7 as c_int as c_long) as usize] = mm.signal_level; // replace the 8th oldest signal strength
-    (*a).seen = crate::now() as i64;
-    (*a).timestamp = mm.timestamp_msg;
-    (*a).messages += 1;
+    // // FIXME: This was disabled (via if 0 in the C code)
+    // if 0 as c_int != 0 && mode_s.aircrafts != a && crate::now() as i64 - (*a).seen >= 1
+    // {
+    //     aux = mode_s.aircrafts;
+    //     while (*aux).next != a {
+    //         aux = (*aux).next
+    //     }
+    //     /* If it is an already known Aircraft, move it on head
+    //      * so we keep aircrafts ordered by received message time.
+    //      *
+    //      * However move it on head only if at least one second elapsed
+    //      * since the Aircraft that is currently on head sent a message,
+    //      * otherwise with multiple aircrafts at the same time we have an
+    //      * useless shuffle of positions on the screen. */
+    //     /* Now we are a node before the Aircraft to remove. */
+    //     (*aux).next = (*(*aux).next).next; /* removed. */
+    //     /* Add on head */
+    //     (*a).next = mode_s.aircrafts;
+    //     mode_s.aircrafts = a
+    // }
+
+    a.signal_level[(a.messages & 7 as c_int as c_long) as usize] = mm.signal_level; // replace the 8th oldest signal strength
+    a.seen = crate::now() as i64;
+    a.timestamp = mm.timestamp_msg;
+    a.messages += 1;
 
     // If a (new) CALLSIGN has been received, copy it to the Aircraft structure
     if mm.b_flags & MODES_ACFLAGS_CALLSIGN_VALID != 0 {
-        ptr::copy_nonoverlapping(
-            mm.flight.as_mut_ptr() as *const c_void,
-            (*a).flight.as_mut_ptr() as *mut c_void,
-            mem::size_of::<[c_char; 16]>(),
-        );
+        a.flight.copy_from_slice(&mm.flight);
     }
 
     // If a (new) ALTITUDE has been received, copy it to the Aircraft structure
     if mm.b_flags & MODES_ACFLAGS_ALTITUDE_VALID != 0 {
-        if (*a).mode_c_count != 0 && (*a).altitude != mm.altitude {
+        if a.mode_c_count != 0 && a.altitude != mm.altitude {
             // and Altitude has changed
             //        && (a->mode_c     != mm->mode_c + 1)   // and Altitude not changed by +100 feet
             //        && (a->mode_c + 1 != mm->mode_c    ) ) // and Altitude not changes by -100 feet
-            (*a).mode_c_count = 0 as c_int as c_long; //....zero the hit count
-            (*a).mode_ac_flags &= !MODEAC_MSG_MODEC_HIT
+            a.mode_c_count = 0 as c_int as c_long; //....zero the hit count
+            a.mode_ac_flags &= !MODEAC_MSG_MODEC_HIT
         }
-        (*a).altitude = mm.altitude;
-        (*a).mode_c = (mm.altitude + 49) / 100
+        a.altitude = mm.altitude;
+        a.mode_c = (mm.altitude + 49) / 100
     }
 
     // If a (new) SQUAWK has been received, copy it to the Aircraft structure
     if mm.b_flags & MODES_ACFLAGS_SQUAWK_VALID != 0 {
-        if (*a).mode_a != mm.mode_a {
-            (*a).mode_a_count = 0; // Squawk has changed, so zero the hit count
-            (*a).mode_ac_flags &= !MODEAC_MSG_MODEA_HIT
+        if a.mode_a != mm.mode_a {
+            a.mode_a_count = 0; // Squawk has changed, so zero the hit count
+            a.mode_ac_flags &= !MODEAC_MSG_MODEA_HIT
         }
-        (*a).mode_a = mm.mode_a
+        a.mode_a = mm.mode_a
     }
 
     // If a (new) HEADING has been received, copy it to the Aircraft structure
     if mm.b_flags & MODES_ACFLAGS_HEADING_VALID != 0 {
-        (*a).track = mm.heading
+        a.track = mm.heading
     }
 
     // If a (new) SPEED has been received, copy it to the Aircraft structure
     if mm.b_flags & MODES_ACFLAGS_SPEED_VALID != 0 {
-        (*a).speed = mm.velocity
+        a.speed = mm.velocity
     }
 
     // If a (new) Vertical Descent rate has been received, copy it to the Aircraft structure
     if mm.b_flags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
-        (*a).vert_rate = mm.vert_rate
+        a.vert_rate = mm.vert_rate
     }
 
     // if the Aircraft has landed or taken off since the last message, clear the even/odd CPR flags
     if mm.b_flags & MODES_ACFLAGS_AOG_VALID != 0
-        && ((*a).b_flags ^ mm.b_flags) & MODES_ACFLAGS_AOG != 0
+        && (a.b_flags ^ mm.b_flags) & MODES_ACFLAGS_AOG != 0
     {
-        (*a).b_flags &= !(MODES_ACFLAGS_LLBOTH_VALID | MODES_ACFLAGS_AOG)
+        a.b_flags &= !(MODES_ACFLAGS_LLBOTH_VALID | MODES_ACFLAGS_AOG)
     }
 
     // If we've got a new cprlat or cprlon
@@ -124,25 +121,27 @@ pub(crate) unsafe fn interactive_receive_data(
         let mut location_ok = 0;
 
         if mm.b_flags & MODES_ACFLAGS_LLODD_VALID != 0 {
-            (*a).odd_cprlat = mm.raw_latitude;
-            (*a).odd_cprlon = mm.raw_longitude;
-            (*a).odd_cprtime = mstime()
+            a.odd_cprlat = mm.raw_latitude;
+            a.odd_cprlon = mm.raw_longitude;
+            a.odd_cprtime = mstime()
         } else {
-            (*a).even_cprlat = mm.raw_latitude;
-            (*a).even_cprlon = mm.raw_longitude;
-            (*a).even_cprtime = mstime()
+            a.even_cprlat = mm.raw_latitude;
+            a.even_cprlon = mm.raw_longitude;
+            a.even_cprtime = mstime()
         }
 
         // If we have enough recent data, try global CPR
-        if (mm.b_flags | (*a).b_flags) & MODES_ACFLAGS_LLEITHER_VALID == MODES_ACFLAGS_LLBOTH_VALID
-            && ((*a).even_cprtime.wrapping_sub((*a).odd_cprtime) as c_int).abs() <= 10000
+        if (mm.b_flags | a.b_flags) & MODES_ACFLAGS_LLEITHER_VALID == MODES_ACFLAGS_LLBOTH_VALID
+            && (a.even_cprtime.wrapping_sub(a.odd_cprtime) as c_int).abs() <= 10000
         {
-            if decode_cpr(
-                &mode_s,
-                a,
-                mm.b_flags & MODES_ACFLAGS_LLODD_VALID,
-                mm.b_flags & MODES_ACFLAGS_AOG,
-            ) == 0
+            if unsafe {
+                decode_cpr(
+                    &mode_s,
+                    a,
+                    mm.b_flags & MODES_ACFLAGS_LLODD_VALID,
+                    mm.b_flags & MODES_ACFLAGS_AOG,
+                )
+            } == 0
             {
                 location_ok = 1
             }
@@ -150,28 +149,30 @@ pub(crate) unsafe fn interactive_receive_data(
 
         // Otherwise try relative CPR.
         if location_ok == 0
-            && decode_cpr_relative(
-                &mode_s,
-                a,
-                mm.b_flags & MODES_ACFLAGS_LLODD_VALID,
-                mm.b_flags & MODES_ACFLAGS_AOG,
-            ) == 0
+            && unsafe {
+                decode_cpr_relative(
+                    &mode_s,
+                    a,
+                    mm.b_flags & MODES_ACFLAGS_LLODD_VALID,
+                    mm.b_flags & MODES_ACFLAGS_AOG,
+                )
+            } == 0
         {
             location_ok = 1
         }
 
-        // If we sucessfully decoded, back copy the results to mm so that we can print them in list output
+        // If we successfully decoded, back copy the results to mm so that we can print them in list output
         if location_ok != 0 {
             mm.b_flags |= MODES_ACFLAGS_LATLON_VALID;
-            mm.f_lat = (*a).lat;
-            mm.f_lon = (*a).lon
+            mm.f_lat = a.lat;
+            mm.f_lon = a.lon
         }
     }
 
     // Update the aircrafts a->b_flags to reflect the newly received mm->b_flags;
-    (*a).b_flags |= (*mm).b_flags;
+    a.b_flags |= (*mm).b_flags;
     if (*mm).msgtype == 32 {
-        let flags = (*a).mode_ac_flags;
+        let flags = a.mode_ac_flags;
         if flags & (MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODEC_OLD) == MODEAC_MSG_MODEC_OLD {
             //
             // This Mode-C doesn't currently hit any known Mode-S, but it used to because MODEAC_MSG_MODEC_OLD is
@@ -183,8 +184,8 @@ pub(crate) unsafe fn interactive_receive_data(
             // To avoid masking this Aircraft from the interactive display, clear the MODEAC_MSG_MODES_OLD flag
             // and set messages to 1;
             //
-            (*a).mode_ac_flags = flags & !MODEAC_MSG_MODEC_OLD;
-            (*a).messages = 1
+            a.mode_ac_flags = flags & !MODEAC_MSG_MODEC_OLD;
+            a.messages = 1
         }
     }
 
@@ -193,14 +194,16 @@ pub(crate) unsafe fn interactive_receive_data(
         // FIXME; port this if needed
         // interactiveCreateDF(a, mm);
     }
-    return a;
+
+    // Put it back
+    mem::swap(&mut mode_s.aircrafts, &mut aircrafts);
 }
 
 // Return a new Aircraft structure for the interactive mode linked list
 // of Aircraft
 //
-unsafe fn interactive_create_aircraft(mm: &mut ModesMessage) -> *mut Aircraft {
-    let mut a = Box::new(Aircraft {
+fn interactive_create_aircraft(mm: &mut ModesMessage) -> Aircraft {
+    let mut a = Aircraft {
         addr: mm.addr,
         flight: [0; 16],
         signal_level: [mm.signal_level; 8], // First time, initialise everything to the first signal strength
@@ -227,8 +230,7 @@ unsafe fn interactive_create_aircraft(mm: &mut ModesMessage) -> *mut Aircraft {
         lat: 0.0,
         lon: 0.0,
         b_flags: 0,
-        next: ptr::null_mut(),
-    });
+    };
 
     // mm->msgtype 32 is used to represent Mode A/C. These values can never change, so
     // set them once here during initialisation, and don't bother to set them every
@@ -244,21 +246,14 @@ unsafe fn interactive_create_aircraft(mm: &mut ModesMessage) -> *mut Aircraft {
         }
     }
 
-    Box::into_raw(a)
+    a
 }
 
 // Return the Aircraft with the specified address, or NULL if no Aircraft
 // exists with this address.
 //
-unsafe fn interactive_find_aircraft(mode_s: &ModeS, addr: u32) -> *mut Aircraft {
-    let mut a = mode_s.aircrafts;
-    while !a.is_null() {
-        if (*a).addr == addr {
-            return a;
-        }
-        a = (*a).next
-    }
-    ptr::null_mut()
+fn interactive_find_aircraft(aircraft: &mut [Aircraft], addr: u32) -> Option<&mut Aircraft> {
+    aircraft.iter_mut().find(|aircraft| aircraft.addr == addr)
 }
 
 fn mstime() -> u64 {
