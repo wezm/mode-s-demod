@@ -16,13 +16,6 @@ use crate::{
 const MODEAC_MSG_MODEA_HIT: c_int = (1 as c_int) << 2 as c_int;
 const MODEAC_MSG_MODEC_HIT: c_int = (1 as c_int) << 3 as c_int;
 
-pub unsafe fn interactiveReceiveDataImpl(
-    Modes: *mut modes,
-    mm: *mut modesMessage,
-) -> *mut aircraft {
-    interactiveReceiveData(&mut *Modes, mm)
-}
-
 // Receive new messages and populate the interactive mode with more info
 //
 pub unsafe fn interactiveReceiveData(Modes: &mut modes, mm: *mut modesMessage) -> *mut aircraft {

@@ -551,15 +551,6 @@ fn cmp_errorinfo(e0: &errorinfo, e1: &errorinfo) -> Ordering {
     e0.syndrome.cmp(&e1.syndrome)
 }
 
-pub unsafe fn modesInitErrorInfoC(
-    table_ptr: *mut errorinfo,
-    table_len: c_int,
-    nfix_crc: c_int,
-) {
-    let bitErrorTable = &mut *ptr::slice_from_raw_parts_mut(table_ptr, table_len as usize);
-    modesInitErrorInfoImpl(bitErrorTable, nfix_crc);
-}
-
 // Compute the table of all syndromes for 1-bit and 2-bit error vectors
 pub unsafe fn modesInitErrorInfoImpl(bitErrorTable: &mut [errorinfo], nfix_crc: c_int) {
     let mut msg: [c_uchar; 14] = [0; MODES_LONG_MSG_BYTES as usize];
