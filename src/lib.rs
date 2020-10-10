@@ -274,35 +274,35 @@ pub struct stDF {
 pub struct modes {
     pub reader_thread: pthread_t,
 
-    pub data_mutex: pthread_mutex_t, // Mutex to synchronize buffer access
-    pub data_cond: pthread_cond_t,   // Conditional variable associated
-    pub pData: [*mut u16; MODES_ASYNC_BUF_NUMBER], // Raw IQ sample buffers from RTL
-    pub stSystemTimeRTL: [timeb; MODES_ASYNC_BUF_NUMBER], // System time when RTL passed us this block
-    pub iDataIn: c_int,                                   // Fifo input pointer
-    pub iDataOut: c_int,                                  // Fifo output pointer
-    pub iDataReady: c_int,                                // Fifo content count
-    pub iDataLost: c_int,                                 // Count of missed buffers
+    // pub data_mutex: pthread_mutex_t, // Mutex to synchronize buffer access
+    // pub data_cond: pthread_cond_t,   // Conditional variable associated
+    // pub pData: [*mut u16; MODES_ASYNC_BUF_NUMBER], // Raw IQ sample buffers from RTL
+    // pub stSystemTimeRTL: [timeb; MODES_ASYNC_BUF_NUMBER], // System time when RTL passed us this block
+    pub iDataIn: c_int,    // Fifo input pointer
+    pub iDataOut: c_int,   // Fifo output pointer
+    pub iDataReady: c_int, // Fifo content count
+    pub iDataLost: c_int,  // Count of missed buffers
 
-    pub pFileData: *mut u16,    // Raw IQ samples buffer (from a File)
-    pub magnitude: *mut u16,    // Magnitude vector
-    pub timestampBlk: u64,      // Timestamp of the start of the current block
-    pub stSystemTimeBlk: timeb, // System time when RTL passed us currently processing this block
-    pub fd: c_int,              // --ifile option file descriptor
-    pub icao_cache: *mut u32,   // Recently seen ICAO addresses cache
-    pub maglut: *mut u16,       // I/Q -> Magnitude lookup table
-    pub exit: c_int,            // Exit from the main loop when true
+    // pub pFileData: *mut u16,    // Raw IQ samples buffer (from a File)
+    pub magnitude: *mut u16, // Magnitude vector
+    pub timestampBlk: u64,   // Timestamp of the start of the current block
+    // pub stSystemTimeBlk: timeb, // System time when RTL passed us currently processing this block
+    pub fd: c_int,            // --ifile option file descriptor
+    pub icao_cache: *mut u32, // Recently seen ICAO addresses cache
+    pub maglut: *mut u16,     // I/Q -> Magnitude lookup table
+    pub exit: c_int,          // Exit from the main loop when true
 
     // RTLSDR
     pub dev_index: c_int,
     pub gain: c_int,
     pub enable_agc: c_int,
-    pub dev: *mut rtlsdr_dev_t,
+    // pub dev: *mut rtlsdr_dev_t,
     pub freq: c_int,
     pub ppm_error: c_int,
 
     // Networking
-    pub aneterr: [c_char; ANET_ERR_LEN],
-    pub clients: *mut client,  // Our clients
+    // pub aneterr: [c_char; ANET_ERR_LEN],
+    // pub clients: *mut client,  // Our clients
     pub sbsos: c_int,          // SBS output listening socket
     pub ros: c_int,            // Raw output listening socket
     pub ris: c_int,            // Raw input listening socket
@@ -315,7 +315,7 @@ pub struct modes {
     pub beastOutUsed: c_int,   // How much if the buffer is currently used
 
     // Configuration
-    pub filename: *mut c_char,            // Input form file, --ifile option
+    // pub filename: *mut c_char,            // Input form file, --ifile option
     pub phase_enhance: c_int,             // Enable phase enhancement if true
     pub nfix_crc: c_int,                  // Number of crc bit error(s) to correct
     pub check_crc: c_int,                 // Only display messages with good CRC
@@ -335,17 +335,17 @@ pub struct modes {
     pub net_input_raw_port: c_int,        // Raw input TCP port
     pub net_output_beast_port: c_int,     // Beast output TCP port
     pub net_input_beast_port: c_int,      // Beast input TCP port
-    pub net_bind_address: *mut c_char,    // Bind address
-    pub net_http_port: c_int,             // HTTP port
-    pub net_sndbuf_size: c_int,           // TCP output buffer size (64Kb * 2^n)
-    pub quiet: c_int,                     // Suppress stdout
-    pub interactive: c_int,               // Interactive mode
-    pub interactive_rows: c_int,          // Interactive mode: max number of rows
-    pub interactive_display_ttl: c_int,   // Interactive mode: TTL display
-    pub interactive_delete_ttl: c_int,    // Interactive mode: TTL before deletion
-    pub stats: c_int,                     // Print stats at exit in --ifile mode
-    pub onlyaddr: c_int,                  // Print only ICAO addresses
-    pub metric: c_int,                    // Use metric units
+    // pub net_bind_address: *mut c_char,    // Bind address
+    pub net_http_port: c_int,           // HTTP port
+    pub net_sndbuf_size: c_int,         // TCP output buffer size (64Kb * 2^n)
+    pub quiet: c_int,                   // Suppress stdout
+    pub interactive: c_int,             // Interactive mode
+    pub interactive_rows: c_int,        // Interactive mode: max number of rows
+    pub interactive_display_ttl: c_int, // Interactive mode: TTL display
+    pub interactive_delete_ttl: c_int,  // Interactive mode: TTL before deletion
+    pub stats: c_int,                   // Print stats at exit in --ifile mode
+    pub onlyaddr: c_int,                // Print only ICAO addresses
+    pub metric: c_int,                  // Use metric units
     pub mlat: c_int, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
     pub interactive_rtl1090: c_int, // flight table in interactive mode is formatted like RTL1090
 
@@ -360,9 +360,9 @@ pub struct modes {
     pub last_cleanup_time: time_t,    // Last cleanup time in seconds
 
     // DF List mode
-    pub bEnableDFLogging: c_int,    // Set to enable DF Logging
-    pub pDF_mutex: pthread_mutex_t, // Mutex to synchronize pDF access
-    pub pDF: *mut stDF,             // Pointer to DF list
+    pub bEnableDFLogging: c_int, // Set to enable DF Logging
+    // pub pDF_mutex: pthread_mutex_t, // Mutex to synchronize pDF access
+    // pub pDF: *mut stDF,             // Pointer to DF list
 
     // DF List mode
     pub stat_valid_preamble: c_uint,
@@ -401,139 +401,6 @@ pub struct modes {
     pub stat_blocks_processed: c_uint,
     pub stat_blocks_dropped: c_uint,
 }
-
-// #[derive(Clone)]
-// #[repr(C)]
-// pub struct modes {
-//     pub reader_thread: pthread_t,
-//
-//     // pub data_mutex: pthread_mutex_t, // Mutex to synchronize buffer access
-//     // pub data_cond: pthread_cond_t,   // Conditional variable associated
-//     // pub pData: [*mut u16; MODES_ASYNC_BUF_NUMBER], // Raw IQ sample buffers from RTL
-//     // pub stSystemTimeRTL: [timeb; MODES_ASYNC_BUF_NUMBER], // System time when RTL passed us this block
-//     pub iDataIn: c_int,    // Fifo input pointer
-//     pub iDataOut: c_int,   // Fifo output pointer
-//     pub iDataReady: c_int, // Fifo content count
-//     pub iDataLost: c_int,  // Count of missed buffers
-//
-//     // pub pFileData: *mut u16,    // Raw IQ samples buffer (from a File)
-//     pub magnitude: *mut u16, // Magnitude vector
-//     pub timestampBlk: u64,   // Timestamp of the start of the current block
-//     // pub stSystemTimeBlk: timeb, // System time when RTL passed us currently processing this block
-//     pub fd: c_int,            // --ifile option file descriptor
-//     pub icao_cache: *mut u32, // Recently seen ICAO addresses cache
-//     pub maglut: *mut u16,     // I/Q -> Magnitude lookup table
-//     pub exit: c_int,          // Exit from the main loop when true
-//
-//     // RTLSDR
-//     pub dev_index: c_int,
-//     pub gain: c_int,
-//     pub enable_agc: c_int,
-//     // pub dev: *mut rtlsdr_dev_t,
-//     pub freq: c_int,
-//     pub ppm_error: c_int,
-//
-//     // Networking
-//     // pub aneterr: [c_char; ANET_ERR_LEN],
-//     // pub clients: *mut client,  // Our clients
-//     pub sbsos: c_int,          // SBS output listening socket
-//     pub ros: c_int,            // Raw output listening socket
-//     pub ris: c_int,            // Raw input listening socket
-//     pub bos: c_int,            // Beast output listening socket
-//     pub bis: c_int,            // Beast input listening socket
-//     pub https: c_int,          // HTTP listening socket
-//     pub rawOut: *mut c_char,   // Buffer for building raw output data
-//     pub rawOutUsed: c_int,     // How much of the buffer is currently used
-//     pub beastOut: *mut c_char, // Buffer for building beast output data
-//     pub beastOutUsed: c_int,   // How much if the buffer is currently used
-//
-//     // Configuration
-//     // pub filename: *mut c_char,            // Input form file, --ifile option
-//     pub phase_enhance: c_int,             // Enable phase enhancement if true
-//     pub nfix_crc: c_int,                  // Number of crc bit error(s) to correct
-//     pub check_crc: c_int,                 // Only display messages with good CRC
-//     pub raw: c_int,                       // Raw output format
-//     pub beast: c_int,                     // Beast binary format output
-//     pub mode_ac: c_int,                   // Enable decoding of SSR Modes A & C
-//     pub debug: c_int,                     // Debugging mode
-//     pub net: c_int,                       // Enable networking
-//     pub net_only: c_int,                  // Enable just networking
-//     pub net_heartbeat_count: c_int,       // TCP heartbeat counter
-//     pub net_heartbeat_rate: c_int,        // TCP heartbeat rate
-//     pub net_output_sbs_port: c_int,       // SBS output TCP port
-//     pub net_output_raw_size: c_int,       // Minimum Size of the output raw data
-//     pub net_output_raw_rate: c_int,       // Rate (in 64mS increments) of output raw data
-//     pub net_output_raw_rate_count: c_int, // Rate (in 64mS increments) of output raw data
-//     pub net_output_raw_port: c_int,       // Raw output TCP port
-//     pub net_input_raw_port: c_int,        // Raw input TCP port
-//     pub net_output_beast_port: c_int,     // Beast output TCP port
-//     pub net_input_beast_port: c_int,      // Beast input TCP port
-//     // pub net_bind_address: *mut c_char,    // Bind address
-//     pub net_http_port: c_int,           // HTTP port
-//     pub net_sndbuf_size: c_int,         // TCP output buffer size (64Kb * 2^n)
-//     pub quiet: c_int,                   // Suppress stdout
-//     pub interactive: c_int,             // Interactive mode
-//     pub interactive_rows: c_int,        // Interactive mode: max number of rows
-//     pub interactive_display_ttl: c_int, // Interactive mode: TTL display
-//     pub interactive_delete_ttl: c_int,  // Interactive mode: TTL before deletion
-//     pub stats: c_int,                   // Print stats at exit in --ifile mode
-//     pub onlyaddr: c_int,                // Print only ICAO addresses
-//     pub metric: c_int,                  // Use metric units
-//     pub mlat: c_int, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
-//     pub interactive_rtl1090: c_int, // flight table in interactive mode is formatted like RTL1090
-//
-//     // User details
-//     pub fUserLat: c_double, // Users receiver/antenna lat/lon needed for initial surface location
-//     pub fUserLon: c_double, // Users receiver/antenna lat/lon needed for initial surface location
-//     pub bUserFlags: c_int,  // Flags relating to the user details
-//
-//     // Interactive mode
-//     pub aircrafts: *mut aircraft,
-//     pub interactive_last_update: u64, // Last screen update in milliseconds
-//     pub last_cleanup_time: time_t,    // Last cleanup time in seconds
-//
-//     // DF List mode
-//     pub bEnableDFLogging: c_int, // Set to enable DF Logging
-//     // pub pDF_mutex: pthread_mutex_t, // Mutex to synchronize pDF access
-//     // pub pDF: *mut stDF,             // Pointer to DF list
-//
-//     // DF List mode
-//     pub stat_valid_preamble: c_uint,
-//     pub stat_demodulated0: c_uint,
-//     pub stat_demodulated1: c_uint,
-//     pub stat_demodulated2: c_uint,
-//     pub stat_demodulated3: c_uint,
-//     pub stat_goodcrc: c_uint,
-//     pub stat_badcrc: c_uint,
-//     pub stat_fixed: c_uint,
-//
-//     // Histogram of fixed bit errors: index 0 for single bit errors,
-//     // index 1 for double bit errors etc.
-//     pub stat_bit_fix: [c_uint; MODES_MAX_BITERRORS],
-//
-//     pub stat_http_requests: c_uint,
-//     pub stat_sbs_connections: c_uint,
-//     pub stat_raw_connections: c_uint,
-//     pub stat_beast_connections: c_uint,
-//     pub stat_out_of_phase: c_uint,
-//     pub stat_ph_demodulated0: c_uint,
-//     pub stat_ph_demodulated1: c_uint,
-//     pub stat_ph_demodulated2: c_uint,
-//     pub stat_ph_demodulated3: c_uint,
-//     pub stat_ph_goodcrc: c_uint,
-//     pub stat_ph_badcrc: c_uint,
-//     pub stat_ph_fixed: c_uint,
-//     // Histogram of fixed bit errors: index 0 for single bit errors,
-//     // index 1 for double bit errors etc.
-//     pub stat_ph_bit_fix: [c_uint; MODES_MAX_BITERRORS],
-//
-//     pub stat_DF_Len_Corrected: c_uint,
-//     pub stat_DF_Type_Corrected: c_uint,
-//     pub stat_ModeAC: c_uint,
-//
-//     pub stat_blocks_processed: c_uint,
-//     pub stat_blocks_dropped: c_uint,
-// }
 
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
@@ -579,106 +446,106 @@ pub struct modesMessage {
     pub bFlags: c_int, // Flags related to fields in this structure
 }
 
-// impl Default for modes {
-//     fn default() -> Self {
-//         modes {
-//             reader_thread: 0,
-//             iDataIn: 0,
-//             iDataOut: 0,
-//             iDataReady: 0,
-//             gain: MODES_MAX_GAIN,
-//             enable_agc: 0,
-//             freq: MODES_DEFAULT_FREQ,
-//             ppm_error: MODES_DEFAULT_PPM,
-//             sbsos: 0,
-//             ros: 0,
-//             ris: 0,
-//             bos: 0,
-//             bis: 0,
-//             check_crc: 1,
-//             raw: 0,
-//             beast: 0,
-//             mode_ac: 0,
-//             debug: 0,
-//             net: 0,
-//             net_only: 0,
-//             net_heartbeat_count: 0,
-//             net_heartbeat_rate: MODES_NET_HEARTBEAT_RATE,
-//             net_output_sbs_port: MODES_NET_OUTPUT_SBS_PORT,
-//             net_output_raw_size: 0,
-//             net_output_raw_rate: 0,
-//             net_output_raw_rate_count: 0,
-//             net_output_raw_port: MODES_NET_OUTPUT_RAW_PORT,
-//             net_input_raw_port: MODES_NET_INPUT_RAW_PORT,
-//             net_output_beast_port: MODES_NET_OUTPUT_BEAST_PORT,
-//             net_input_beast_port: MODES_NET_INPUT_BEAST_PORT,
-//             net_http_port: MODES_NET_HTTP_PORT,
-//             net_sndbuf_size: 0,
-//             quiet: 0,
-//             interactive: 0,
-//             interactive_rows: 80, // getTermRows(),
-//             interactive_delete_ttl: MODES_INTERACTIVE_DELETE_TTL,
-//             stats: 0,
-//             onlyaddr: 0,
-//             metric: 0,
-//             mlat: 0,
-//             interactive_display_ttl: MODES_INTERACTIVE_DISPLAY_TTL,
-//             fUserLat: MODES_USER_LATITUDE_DFLT,
-//             fUserLon: MODES_USER_LONGITUDE_DFLT,
-//
-//             bUserFlags: 0,
-//             aircrafts: ptr::null_mut(),
-//             interactive_last_update: 0,
-//             last_cleanup_time: 0,
-//             bEnableDFLogging: 0,
-//             stat_valid_preamble: 0,
-//             stat_demodulated0: 0,
-//             stat_demodulated1: 0,
-//             stat_demodulated2: 0,
-//             stat_demodulated3: 0,
-//             stat_goodcrc: 0,
-//             stat_badcrc: 0,
-//             stat_fixed: 0,
-//             stat_bit_fix: [0; MODES_MAX_BITERRORS],
-//             stat_http_requests: 0,
-//             stat_sbs_connections: 0,
-//             stat_raw_connections: 0,
-//             stat_beast_connections: 0,
-//             stat_out_of_phase: 0,
-//             stat_ph_demodulated0: 0,
-//             stat_ph_demodulated1: 0,
-//             stat_ph_demodulated2: 0,
-//             stat_ph_demodulated3: 0,
-//             stat_ph_goodcrc: 0,
-//             stat_ph_badcrc: 0,
-//             stat_ph_fixed: 0,
-//             stat_ph_bit_fix: [0; MODES_MAX_BITERRORS],
-//             stat_DF_Len_Corrected: 0,
-//             stat_DF_Type_Corrected: 0,
-//             stat_ModeAC: 0,
-//             stat_blocks_processed: 0,
-//             icao_cache: ptr::null_mut(),
-//             magnitude: ptr::null_mut(),
-//             timestampBlk: 0,
-//             maglut: ptr::null_mut(),
-//
-//             exit: 0,
-//             rawOut: ptr::null_mut(),
-//             rawOutUsed: 0,
-//             beastOut: ptr::null_mut(),
-//             beastOutUsed: 0,
-//
-//             phase_enhance: 0,
-//             iDataLost: 0,
-//             fd: 0,
-//             dev_index: 0,
-//             https: 0,
-//             nfix_crc: 0,
-//             interactive_rtl1090: 0,
-//             stat_blocks_dropped: 0,
-//         }
-//     }
-// }
+impl Default for modes {
+    fn default() -> Self {
+        modes {
+            reader_thread: 0,
+            iDataIn: 0,
+            iDataOut: 0,
+            iDataReady: 0,
+            gain: MODES_MAX_GAIN,
+            enable_agc: 0,
+            freq: MODES_DEFAULT_FREQ,
+            ppm_error: MODES_DEFAULT_PPM,
+            sbsos: 0,
+            ros: 0,
+            ris: 0,
+            bos: 0,
+            bis: 0,
+            check_crc: 1,
+            raw: 0,
+            beast: 0,
+            mode_ac: 0,
+            debug: 0,
+            net: 0,
+            net_only: 0,
+            net_heartbeat_count: 0,
+            net_heartbeat_rate: MODES_NET_HEARTBEAT_RATE,
+            net_output_sbs_port: MODES_NET_OUTPUT_SBS_PORT,
+            net_output_raw_size: 0,
+            net_output_raw_rate: 0,
+            net_output_raw_rate_count: 0,
+            net_output_raw_port: MODES_NET_OUTPUT_RAW_PORT,
+            net_input_raw_port: MODES_NET_INPUT_RAW_PORT,
+            net_output_beast_port: MODES_NET_OUTPUT_BEAST_PORT,
+            net_input_beast_port: MODES_NET_INPUT_BEAST_PORT,
+            net_http_port: MODES_NET_HTTP_PORT,
+            net_sndbuf_size: 0,
+            quiet: 0,
+            interactive: 0,
+            interactive_rows: 80, // getTermRows(),
+            interactive_delete_ttl: MODES_INTERACTIVE_DELETE_TTL,
+            stats: 0,
+            onlyaddr: 0,
+            metric: 0,
+            mlat: 0,
+            interactive_display_ttl: MODES_INTERACTIVE_DISPLAY_TTL,
+            fUserLat: MODES_USER_LATITUDE_DFLT,
+            fUserLon: MODES_USER_LONGITUDE_DFLT,
+
+            bUserFlags: 0,
+            aircrafts: ptr::null_mut(),
+            interactive_last_update: 0,
+            last_cleanup_time: 0,
+            bEnableDFLogging: 0,
+            stat_valid_preamble: 0,
+            stat_demodulated0: 0,
+            stat_demodulated1: 0,
+            stat_demodulated2: 0,
+            stat_demodulated3: 0,
+            stat_goodcrc: 0,
+            stat_badcrc: 0,
+            stat_fixed: 0,
+            stat_bit_fix: [0; MODES_MAX_BITERRORS],
+            stat_http_requests: 0,
+            stat_sbs_connections: 0,
+            stat_raw_connections: 0,
+            stat_beast_connections: 0,
+            stat_out_of_phase: 0,
+            stat_ph_demodulated0: 0,
+            stat_ph_demodulated1: 0,
+            stat_ph_demodulated2: 0,
+            stat_ph_demodulated3: 0,
+            stat_ph_goodcrc: 0,
+            stat_ph_badcrc: 0,
+            stat_ph_fixed: 0,
+            stat_ph_bit_fix: [0; MODES_MAX_BITERRORS],
+            stat_DF_Len_Corrected: 0,
+            stat_DF_Type_Corrected: 0,
+            stat_ModeAC: 0,
+            stat_blocks_processed: 0,
+            icao_cache: ptr::null_mut(),
+            magnitude: ptr::null_mut(),
+            timestampBlk: 0,
+            maglut: ptr::null_mut(),
+
+            exit: 0,
+            rawOut: ptr::null_mut(),
+            rawOutUsed: 0,
+            beastOut: ptr::null_mut(),
+            beastOutUsed: 0,
+
+            phase_enhance: 0,
+            iDataLost: 0,
+            fd: 0,
+            dev_index: 0,
+            https: 0,
+            nfix_crc: 0,
+            interactive_rtl1090: 0,
+            stat_blocks_dropped: 0,
+        }
+    }
+}
 
 fn cmp_errorinfo(e0: &errorinfo, e1: &errorinfo) -> Ordering {
     e0.syndrome.cmp(&e1.syndrome)
