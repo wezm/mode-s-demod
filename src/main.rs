@@ -54,8 +54,9 @@ fn main() -> Result<(), io::Error> {
         mem::swap(&mut state.magnitude, &mut magnitude);
         unsafe {
             detect_mode_s(
-                &mut magnitude[0..MODES_ASYNC_BUF_SAMPLES],
-                &mut state as *mut _,
+                &mut magnitude,
+                MODES_ASYNC_BUF_SAMPLES as u32,
+                &mut state,
                 &bit_error_table,
             );
         }

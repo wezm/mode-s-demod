@@ -1,6 +1,7 @@
 use std::os::raw::{c_int, c_uchar, c_uint};
 
 use crate::ModesMessage;
+use std::convert::TryFrom;
 
 // ===================== Mode A/C detection and decoding  ===================
 
@@ -112,7 +113,7 @@ pub const MODE_A_MID_TABLE: [u32; 24] = [
 //
 // Returns the number of mode A bits.
 #[rustfmt::skip]
-pub(crate) unsafe fn detect_mode_a(m: *const u16, mm: &mut ModesMessage) -> c_int {
+pub(crate) fn detect_mode_a(m: &[u16], mm: &mut ModesMessage) -> c_int {
     let mut mode_a_bits = 0;
     let mut mode_a_errs = 0;
     let mut bit: c_int;
@@ -141,16 +142,16 @@ pub(crate) unsafe fn detect_mode_a(m: *const u16, mm: &mut ModesMessage) -> c_in
     //
     // 0 - 0.5 - 0.5 - 0.
 
-    let m0 = *m.offset(0) as c_int;
-    let m1 = *m.offset(1) as c_int;
+    let m0 = c_int::from(m[0]);
+    let m1 = c_int::from(m[1]);
 
     if m0 >= m1 {
         // m1 *must* be bigger than m0 for this to be F1
         return 0;
     }
 
-    let mut m2 = *m.offset(2) as c_int;
-    let mut m3 = *m.offset(3) as c_int;
+    let mut m2 = c_int::from(m[2]);
+    let mut m3 = c_int::from(m[3]);
 
     // if (m2 <= m0), then assume the sample bob on (Phase == 0), so don't look at m3
     if m2 <= m0 || m2 < m3 {
@@ -192,28 +193,28 @@ pub(crate) unsafe fn detect_mode_a(m: *const u16, mm: &mut ModesMessage) -> c_in
     //
     let mut m_phase = m2 * 20 / (m1 + m2);
     let mut byte = (m_phase + 812) / 20;
-    let fresh0 = byte;
+    let fresh0 = usize::try_from(byte).unwrap();
     byte = byte + 1;
-    let n0 = *m.offset(fresh0 as isize) as c_int;
-    let fresh1 = byte;
+    let n0 = c_int::from(m[fresh0]);
+    let fresh1 = usize::try_from(byte).unwrap();
     byte = byte + 1;
-    let n1 = *m.offset(fresh1 as isize) as c_int;
+    let n1 = c_int::from(m[fresh1]);
 
     if n0 >= n1 {
         // n1 *must* be bigger than n0 for this to be F2
         return 0;
     }
 
-    let fresh2 = byte;
+    let fresh2 = usize::try_from(byte).unwrap();
     byte = byte + 1;
-    let mut n2 = *m.offset(fresh2 as isize) as c_int;
+    let mut n2 = c_int::from(m[fresh2]);
     //
     // if the sample bob on (Phase == 0), don't look at n3
     //
     if (m_phase + 812) % 20 != 0 {
-        let fresh3 = byte;
+        let fresh3 = usize::try_from(byte).unwrap();
         byte = byte + 1;
-        n3 = *m.offset(fresh3 as isize) as c_int
+        n3 = c_int::from(m[fresh3]);
     } else {
         n3 = n2;
         n2 = n0
@@ -253,11 +254,11 @@ pub(crate) unsafe fn detect_mode_a(m: *const u16, mm: &mut ModesMessage) -> c_in
     while j < 48 as c_int {
         byte = 1 + m_phase / 20;
 
-        let mut this_sample = *m.offset(byte as isize) as c_int - f_noise;
+        let mut this_sample = c_int::from(m[usize::try_from(byte).unwrap()]) - f_noise;
         // If the bit is split over two samples...
         if m_phase % 20 != 0 {
             // add in the second sample's energy
-            this_sample += *m.offset((byte + 1) as isize) as c_int - f_noise
+            this_sample += c_int::from(m[usize::try_from(byte + 1).unwrap()]) - f_noise;
         }
 
         // If we're calculating a space value
@@ -315,7 +316,7 @@ pub(crate) unsafe fn detect_mode_a(m: *const u16, mm: &mut ModesMessage) -> c_in
 
     // TODO: Avoid mutating in this "detect" function
     f_sig = f_sig + 0x7f >> 8;
-    (*mm).signal_level = if f_sig < 255 { f_sig } else { 255 } as c_uchar;
+    mm.signal_level = if f_sig < 255 { f_sig } else { 255 } as c_uchar;
 
     return mode_a_bits;
 }

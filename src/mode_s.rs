@@ -1494,9 +1494,13 @@ unsafe fn apply_phase_correction(p_payload: *mut u16) {
 // size 'mlen' bytes. Every detected Mode S message is convert it into a
 // stream of bits and passed to the function to display it.
 //
-pub unsafe fn detect_mode_s(m: &mut [u16], mode_s: *mut ModeS, bit_errors: &[errorinfo]) {
-    let mlen = m.len() as u32; // FIXME cast
-    let m = m.as_mut_ptr();
+pub unsafe fn detect_mode_s(
+    m_slice: &mut [u16],
+    mlen: u32,
+    mode_s: &mut ModeS,
+    bit_errors: &[errorinfo],
+) {
+    let m = m_slice.as_mut_ptr();
     let mut mm: ModesMessage = ModesMessage::default();
     let mut msg = [0; MODES_LONG_MSG_BYTES];
     let mut p_msg: *mut c_uchar;
@@ -1540,7 +1544,7 @@ pub unsafe fn detect_mode_s(m: &mut [u16], mode_s: *mut ModeS, bit_errors: &[err
         let mut scanlen: c_int;
         let mut sig_strength: c_int;
 
-        let p_preamble = m.offset(j as isize);
+        let preamble = &m_slice[j as usize..];
         let mut p_payload = m.offset(j as isize + MODES_PREAMBLE_SAMPLES as isize);
 
         // Rather than clear the whole mm structure, just clear the parts which are required. The clear
@@ -1554,7 +1558,7 @@ pub unsafe fn detect_mode_s(m: &mut [u16], mode_s: *mut ModeS, bit_errors: &[err
             // This is not a re-try with phase correction
             // so try to find a new preamble
             if (*mode_s).mode_ac != 0 {
-                let mode_a = detect_mode_a(p_preamble, &mut mm);
+                let mode_a = detect_mode_a(preamble, &mut mm);
                 if mode_a != 0 {
                     // We have found a valid mode_a/C in the data
                     mm.timestamp_msg = (*mode_s)
@@ -1583,19 +1587,19 @@ pub unsafe fn detect_mode_s(m: &mut [u16], mode_s: *mut ModeS, bit_errors: &[err
                 // representing a valid preamble. We don't even investigate further
                 // if this simple test is not passed
                 {
-                    if !(*p_preamble.offset(0) > *p_preamble.offset(1)
-                        && (*p_preamble.offset(1)) < *p_preamble.offset(2)
-                        && *p_preamble.offset(2) > *p_preamble.offset(3)
-                        && (*p_preamble.offset(3)) < *p_preamble.offset(0)
-                        && (*p_preamble.offset(4)) < *p_preamble.offset(0)
-                        && (*p_preamble.offset(5)) < *p_preamble.offset(0)
-                        && (*p_preamble.offset(6)) < *p_preamble.offset(0)
-                        && *p_preamble.offset(7) > *p_preamble.offset(8)
-                        && (*p_preamble.offset(8)) < *p_preamble.offset(9)
-                        && *p_preamble.offset(9) > *p_preamble.offset(6))
+                    if !(preamble[0] > preamble[1]
+                        && preamble[1] < preamble[2]
+                        && preamble[2] > preamble[3]
+                        && preamble[3] < preamble[0]
+                        && preamble[4] < preamble[0]
+                        && preamble[5] < preamble[0]
+                        && preamble[6] < preamble[0]
+                        && preamble[7] > preamble[8]
+                        && preamble[8] < preamble[9]
+                        && preamble[9] > preamble[6])
                     {
                         if (*mode_s).debug & MODES_DEBUG_NOPREAMBLE != 0
-                            && *p_preamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
+                            && preamble[0] as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
                         {
                             dump_raw_message(
                                 b"Unexpected ratio among first 10 samples\x00".as_ptr()
@@ -1611,16 +1615,14 @@ pub unsafe fn detect_mode_s(m: &mut [u16], mode_s: *mut ModeS, bit_errors: &[err
                         // of the high spikes level. We don't test bits too near to
                         // the high levels as signals can be out of phase so part of the
                         // energy can be in the near samples
-                        high = (*p_preamble.offset(0) as c_int
-                            + *p_preamble.offset(2) as c_int
-                            + *p_preamble.offset(7) as c_int
-                            + *p_preamble.offset(9) as c_int)
+                        high = (preamble[0] as c_int
+                            + preamble[2] as c_int
+                            + preamble[7] as c_int
+                            + preamble[9] as c_int)
                             / 6 as c_int;
-                        if *p_preamble.offset(4) as c_int >= high
-                            || *p_preamble.offset(5) as c_int >= high
-                        {
+                        if preamble[4] as c_int >= high || preamble[5] as c_int >= high {
                             if (*mode_s).debug & MODES_DEBUG_NOPREAMBLE != 0
-                                && *p_preamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
+                                && preamble[0] as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
                             {
                                 dump_raw_message(
                                     b"Too high level in samples between 3 and 6\x00".as_ptr()
@@ -1631,16 +1633,16 @@ pub unsafe fn detect_mode_s(m: &mut [u16], mode_s: *mut ModeS, bit_errors: &[err
                                 );
                             }
                             current_block_183 = 735147466149431745;
-                        } else if *p_preamble.offset(11) as c_int >= high
-                            || *p_preamble.offset(12) as c_int >= high
-                            || *p_preamble.offset(13) as c_int >= high
-                            || *p_preamble.offset(14) as c_int >= high
+                        } else if preamble[11] as c_int >= high
+                            || preamble[12] as c_int >= high
+                            || preamble[13] as c_int >= high
+                            || preamble[14] as c_int >= high
                         {
                             // Similarly samples in the range 11-14 must be low, as it is the
                             // space between the preamble and real data. Again we don't test
                             // bits too near to high levels, see above
                             if (*mode_s).debug & MODES_DEBUG_NOPREAMBLE != 0
-                                && *p_preamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
+                                && preamble[0] as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
                             {
                                 dump_raw_message(
                                     b"Too high level in samples between 10 and 15\x00".as_ptr()
@@ -1663,7 +1665,8 @@ pub unsafe fn detect_mode_s(m: &mut [u16], mode_s: *mut ModeS, bit_errors: &[err
             // If the previous attempt with this message failed, retry using
             // magnitude correction
             // Make a copy of the Payload, and phase correct the copy
-            ptr::copy_nonoverlapping(p_preamble.offset(-1), aux.as_mut_ptr(), aux.len());
+            let src = &m_slice[usize::try_from(j - 1).unwrap()..];
+            ptr::copy_nonoverlapping(src.as_ptr(), aux.as_mut_ptr(), aux.len()); // FIXME: do this without ptr::
             apply_phase_correction(&mut *aux.as_mut_ptr().offset(1));
             (*mode_s).stat_out_of_phase = (*mode_s).stat_out_of_phase.wrapping_add(1);
             p_payload = aux.as_mut_ptr().offset(1 + MODES_PREAMBLE_SAMPLES as isize) as *mut u16;
@@ -1685,10 +1688,10 @@ pub unsafe fn detect_mode_s(m: &mut [u16], mode_s: *mut ModeS, bit_errors: &[err
 
                 // We should have 4 'bits' of 0/1 and 1/0 samples in the preamble,
                 // so include these in the signal strength
-                sig_strength = *p_preamble.offset(0) as c_int - *p_preamble.offset(1) as c_int
-                    + (*p_preamble.offset(2) as c_int - *p_preamble.offset(3) as c_int)
-                    + (*p_preamble.offset(7) as c_int - *p_preamble.offset(6) as c_int)
-                    + (*p_preamble.offset(9) as c_int - *p_preamble.offset(8) as c_int);
+                sig_strength = preamble[0] as c_int - preamble[1] as c_int
+                    + (preamble[2] as c_int - preamble[3] as c_int)
+                    + (preamble[7] as c_int - preamble[6] as c_int)
+                    + (preamble[9] as c_int - preamble[8] as c_int);
 
                 scanlen = MODES_LONG_MSG_BITS;
                 msglen = scanlen;
@@ -1980,7 +1983,7 @@ pub unsafe fn detect_mode_s(m: &mut [u16], mode_s: *mut ModeS, bit_errors: &[err
                     && mm.correctedbits == 0
                     && use_correction == 0
                     && j != 0
-                    && detect_out_of_phase(p_preamble) != 0
+                    && detect_out_of_phase(preamble.as_ptr()) != 0
                 {
                     use_correction = 1;
                     j = j.wrapping_sub(1)
