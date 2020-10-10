@@ -8,12 +8,12 @@ pub const MODEAC_MSG_SAMPLES: u32 = 25 * 2; // include up to the SPI bit
                                             // const MODEAC_MSG_BYTES: c_int = 2;
 const MODES_ACFLAGS_SQUAWK_VALID: c_int = 1 << 5;
 const MODEAC_MSG_SQUELCH_LEVEL: c_int = 0x07FF; // Average signal strength limit
-                                                // const MODEAC_MSG_FLAG: c_int = 1 << 0;
-                                                // const MODEAC_MSG_MODES_HIT: c_int = 1 << 1;
-                                                // const MODEAC_MSG_MODEA_HIT: c_int = 1 << 2;
-                                                // const MODEAC_MSG_MODEC_HIT: c_int = 1 << 3;
-                                                // const MODEAC_MSG_MODEA_ONLY: c_int = 1 << 4;
-                                                // const MODEAC_MSG_MODEC_OLD: c_int = 1 << 5;
+pub(crate) const MODEAC_MSG_FLAG: c_int = 1 << 0;
+// const MODEAC_MSG_MODES_HIT: c_int = 1 << 1;
+// const MODEAC_MSG_MODEA_HIT: c_int = 1 << 2;
+// const MODEAC_MSG_MODEC_HIT: c_int = 1 << 3;
+pub const MODEAC_MSG_MODEA_ONLY: c_int = 1 << 4;
+pub const MODEAC_MSG_MODEC_OLD: c_int = 1 << 5;
 
 // This table is used to build the Mode A/C variable called ModeABits.Each
 // bit period is inspected, and if it's value exceeds the threshold limit,

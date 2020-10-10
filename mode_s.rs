@@ -1,14 +1,12 @@
 // ===================== Mode S detection and decoding  ===================
 
-use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::ffi::CStr;
 use std::io::Write;
-use std::os::raw::{c_char, c_double, c_int, c_uchar, c_uint, c_ulong, c_void};
-use std::time::SystemTime;
+use std::os::raw::{c_char, c_double, c_int, c_uchar, c_uint, c_ulong};
 use std::{io, mem, ptr, time};
 
-use crate::io::modesQueueOutput;
+use crate::interactive::interactiveReceiveData;
 use crate::mode_ac::{decodeModeAMessage, detectModeA, ModeAToModeC, MODEAC_MSG_SAMPLES};
 use crate::{
     aircraft, modes, modesMessage, MODES_ACFLAGS_ALTITUDE_VALID, MODES_ACFLAGS_EWSPEED_VALID,
@@ -22,17 +20,6 @@ use crate::{
     MODES_SHORT_MSG_BITS, MODES_UNIT_FEET, MODES_UNIT_METERS, MODES_USER_LATITUDE_DFLT,
     MODES_USER_LATLON_VALID, MODES_USER_LONGITUDE_DFLT,
 };
-
-extern "C" {
-    #[no_mangle]
-    fn modesSendAllClients(service: c_int, msg: *mut c_void, len: c_int); // noport
-
-    #[no_mangle]
-    fn dumpRawMessage(descr: *const c_char, msg: *mut c_uchar, m: *mut u16, offset: u32); // noport
-
-    #[no_mangle]
-    fn interactiveReceiveData(mm: *mut modesMessage) -> *mut aircraft; // noport
-}
 
 // Parity table for MODE S Messages.
 // The table contains 112 elements, every element corresponds to a bit set
@@ -90,7 +77,7 @@ const MODES_CHECKSUM_TABLE: [u32; 112] = [
 // instead of running through all possible bit positions (resp. pairs of
 // bit positions).
 //
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 #[repr(C)]
 pub struct errorinfo {
     pub syndrome: u32,
@@ -141,64 +128,6 @@ pub extern "C" fn modesMessageLenByType(type_: c_int) -> c_int {
     } else {
         MODES_SHORT_MSG_BITS
     }
-}
-
-fn cmp_errorinfo(e0: &errorinfo, e1: &errorinfo) -> Ordering {
-    e0.syndrome.cmp(&e1.syndrome)
-}
-
-// Compute the table of all syndromes for 1-bit and 2-bit error vectors
-#[no_mangle]
-pub unsafe extern "C" fn modesInitErrorInfoImpl(
-    table_ptr: *mut errorinfo,
-    table_len: c_int,
-    nfix_crc: c_int,
-) {
-    let bitErrorTable = &mut *ptr::slice_from_raw_parts_mut(table_ptr, table_len as usize);
-    let mut msg: [c_uchar; 14] = [0; MODES_LONG_MSG_BYTES as usize];
-    let mut j: c_int;
-    let mut n: c_int = 0;
-    let mut crc: u32;
-
-    // Add all possible single and double bit errors
-    // don't include errors in first 5 bits (DF type)
-    let mut i = 5 as c_int;
-    while i < MODES_LONG_MSG_BITS {
-        let bytepos0: c_int = i >> 3 as c_int;
-        let mask0: c_int = (1 as c_int) << 7 as c_int - (i & 7 as c_int);
-        // revert error0
-        msg[bytepos0 as usize] = (msg[bytepos0 as usize] as c_int ^ mask0) as c_uchar; // create error0
-        crc = modesChecksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // single bit error case
-        bitErrorTable[n as usize].syndrome = crc;
-        bitErrorTable[n as usize].bits = 1 as c_int;
-        bitErrorTable[n as usize].pos[0 as c_int as usize] = i;
-        bitErrorTable[n as usize].pos[1 as c_int as usize] = -(1 as c_int);
-        n += 1 as c_int;
-        if nfix_crc > 1 as c_int {
-            j = i + 1 as c_int;
-            while j < MODES_LONG_MSG_BITS {
-                let bytepos1: c_int = j >> 3 as c_int;
-                let mask1: c_int = (1 as c_int) << 7 as c_int - (j & 7 as c_int);
-                // revert error1
-                msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar; // create error1
-                crc = modesChecksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // two bit error case
-                if n >= bitErrorTable.len() as c_int {
-                    break;
-                }
-                bitErrorTable[n as usize].syndrome = crc;
-                bitErrorTable[n as usize].bits = 2 as c_int;
-                bitErrorTable[n as usize].pos[0 as c_int as usize] = i;
-                bitErrorTable[n as usize].pos[1 as c_int as usize] = j;
-                n += 1 as c_int;
-                msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar;
-                j += 1
-            }
-        }
-        msg[bytepos0 as usize] = (msg[bytepos0 as usize] as c_int ^ mask0) as c_uchar;
-        i += 1
-    }
-
-    bitErrorTable.sort_by(cmp_errorinfo)
 }
 
 // Search for syndrome in table and if an entry is found, flip the necessary
@@ -282,10 +211,7 @@ pub unsafe extern "C" fn addRecentlySeenICAOAddrImpl(this: *mut modes, addr: u32
         .icao_cache
         .offset(h.wrapping_mul(2 as c_int as c_uint) as isize) = addr;
     // Need seconds since epoch as a u32 to replace time(NULL) call.
-    let now = match SystemTime::now().duration_since(time::UNIX_EPOCH) {
-        Ok(n) => n.as_secs(),
-        Err(_) => panic!("SystemTime before UNIX EPOCH!"),
-    };
+    let now = crate::now();
     *(*this).icao_cache.offset(
         h.wrapping_mul(2 as c_int as c_uint)
             .wrapping_add(1 as c_int as c_uint) as isize,
@@ -303,10 +229,7 @@ pub unsafe extern "C" fn ICAOAddressWasRecentlySeenImpl(this: *const modes, addr
     let t: u32 = *(*this)
         .icao_cache
         .offset(h.wrapping_mul(2).wrapping_add(1) as isize);
-    let tn = match SystemTime::now().duration_since(time::UNIX_EPOCH) {
-        Ok(n) => n.as_secs(),
-        Err(_) => panic!("SystemTime before UNIX EPOCH!"),
-    };
+    let tn = crate::now();
     (a != 0 && a == addr && tn.wrapping_sub(u64::from(t)) <= MODES_ICAO_CACHE_TTL) as c_int
 }
 
@@ -2123,20 +2046,20 @@ pub unsafe extern "C" fn detectModeSImpl(
         (*Modes).net_output_raw_rate_count += 1;
         if (*Modes).net_output_raw_rate_count > (*Modes).net_output_raw_rate {
             if (*Modes).rawOutUsed != 0 {
-                modesSendAllClients(
-                    (*Modes).ros,
-                    (*Modes).rawOut as *mut c_void,
-                    (*Modes).rawOutUsed,
-                );
+                // modesSendAllClients(
+                //     (*Modes).ros,
+                //     (*Modes).rawOut as *mut c_void,
+                //     (*Modes).rawOutUsed,
+                // );
                 (*Modes).rawOutUsed = 0 as c_int
             }
 
             if (*Modes).beastOutUsed != 0 {
-                modesSendAllClients(
-                    (*Modes).bos,
-                    (*Modes).beastOut as *mut c_void,
-                    (*Modes).beastOutUsed,
-                );
+                // modesSendAllClients(
+                //     (*Modes).bos,
+                //     (*Modes).beastOut as *mut c_void,
+                //     (*Modes).beastOutUsed,
+                // );
                 (*Modes).beastOutUsed = 0 as c_int
             }
             (*Modes).net_output_raw_rate_count = 0 as c_int
@@ -2159,7 +2082,7 @@ pub unsafe extern "C" fn detectModeSImpl(
         mm.timestampMsg = (*Modes).timestampBlk;
 
         // Feed output clients
-        modesQueueOutput(Modes, &mut mm);
+        // modesQueueOutput(Modes, &mut mm);
 
         // Reset the heartbeat counter
         (*Modes).net_heartbeat_count = 0;
@@ -2179,7 +2102,7 @@ pub unsafe extern "C" fn useModesMessage(Modes: *mut modes, mm: *mut modesMessag
         // not checking, ok or fixed
 
         // Always track aircraft
-        interactiveReceiveData(mm);
+        interactiveReceiveData(&mut (*Modes), mm);
 
         // In non-interactive non-quiet mode, display messages on standard output
         if (*Modes).interactive == 0 && (*Modes).quiet == 0 {
@@ -2188,7 +2111,7 @@ pub unsafe extern "C" fn useModesMessage(Modes: *mut modes, mm: *mut modesMessag
 
         // Feed output clients
         if (*Modes).net != 0 {
-            modesQueueOutput(Modes, mm);
+            // modesQueueOutput(Modes, mm);
         }
 
         // Heartbeat not required whilst we're seeing real messages
@@ -2623,69 +2546,17 @@ pub unsafe extern "C" fn decodeCPRrelative(
     0
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const NERRORINFO: usize =
-        (MODES_LONG_MSG_BITS + MODES_LONG_MSG_BITS * (MODES_LONG_MSG_BITS - 1) / 2) as usize;
-
-    #[test]
-    fn test_bit_error_table() {
-        let mut bit_error_table = [errorinfo {
-            syndrome: 0,
-            bits: 0,
-            pos: [0; 2],
-        }; NERRORINFO];
-        let nfix_crc_agressive = 2; // TODO: test with 1 and 2
-        unsafe {
-            modesInitErrorInfoImpl(
-                bit_error_table.as_mut_ptr(),
-                bit_error_table.len() as c_int,
-                nfix_crc_agressive,
-            )
-        };
-
-        // Test code: report if any syndrome appears at least twice. In this
-        // case the correction cannot be done without ambiguity.
-        // Tried it, does not happen for 1- and 2-bit errors.
-        let errorinfo_zero = errorinfo {
-            syndrome: 0,
-            bits: 0,
-            pos: [0; 2],
-        };
-        for i in 1..bit_error_table.len() {
-            // The first 550 are zero in the C impl
-            if i <= 549 {
-                assert_eq!(bit_error_table[i - 1], errorinfo_zero);
-                assert_eq!(bit_error_table[i], errorinfo_zero);
-            } else {
-                assert_ne!(
-                    bit_error_table[i - 1].syndrome,
-                    bit_error_table[i].syndrome,
-                    "modesInitErrorInfo: Collision for syndrome {:0x}\n",
-                    bit_error_table[i].syndrome
-                )
-            }
-        }
-    }
-    /*
-    for (i = 1;  i < NERRORINFO;  i++) {
-        if (bitErrorTable[i-1].syndrome == bitErrorTable[i].syndrome) {
-            fprintf(stderr, "modesInitErrorInfo: Collision for syndrome %06x\n",
-                            (int)bitErrorTable[i].syndrome);
-        }
-    }
-
-    for (i = 0;  i < NERRORINFO;  i++) {
-        printf("syndrome %06x    bit0 %3d    bit1 %3d\n",
-               bitErrorTable[i].syndrome,
-               bitErrorTable[i].pos0, bitErrorTable[i].pos1);
-    }
-    */
-
-    #[test]
-    fn test_fix_bit_errors() {
-        // TODO: Port commented out fixBitErrors test code from mode_s.c
-    }
+fn dumpRawMessage(descr: *const c_char, msg: *mut c_uchar, m: *mut u16, offset: u32) {
+    // printf("\n--- %s\n    ", descr);
+    // for (j = 0; j < MODES_LONG_MSG_BYTES; j++) {
+    //     printf("%02x",msg[j]);
+    //     if (j == MODES_SHORT_MSG_BYTES-1) printf(" ... ");
+    // }
+    // printf(" (DF %d, Fixable: %d)\n", msgtype, fixable);
+    // dumpMagnitudeVector(m,offset);
+    // printf("---\n\n");
+    let desc = unsafe { CStr::from_ptr(descr) }
+        .to_str()
+        .unwrap_or("{invalid}");
+    eprintln!("dumpRawMessage: {}", desc);
 }

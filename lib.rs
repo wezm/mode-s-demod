@@ -7,9 +7,16 @@ use std::os::raw::{
 use std::time::SystemTime;
 use std::{mem, ptr, time};
 
-mod io;
+mod interactive;
 mod mode_ac;
 mod mode_s;
+
+use std::cmp::Ordering;
+
+use mode_s::modesChecksum;
+
+pub use mode_s::{computeMagnitudeVectorImpl, detectModeSImpl, errorinfo};
+use std::convert::TryInto;
 
 const ANET_ERR_LEN: usize = 256;
 
@@ -395,6 +402,139 @@ pub struct modes {
     pub stat_blocks_dropped: c_uint,
 }
 
+// #[derive(Clone)]
+// #[repr(C)]
+// pub struct modes {
+//     pub reader_thread: pthread_t,
+//
+//     // pub data_mutex: pthread_mutex_t, // Mutex to synchronize buffer access
+//     // pub data_cond: pthread_cond_t,   // Conditional variable associated
+//     // pub pData: [*mut u16; MODES_ASYNC_BUF_NUMBER], // Raw IQ sample buffers from RTL
+//     // pub stSystemTimeRTL: [timeb; MODES_ASYNC_BUF_NUMBER], // System time when RTL passed us this block
+//     pub iDataIn: c_int,    // Fifo input pointer
+//     pub iDataOut: c_int,   // Fifo output pointer
+//     pub iDataReady: c_int, // Fifo content count
+//     pub iDataLost: c_int,  // Count of missed buffers
+//
+//     // pub pFileData: *mut u16,    // Raw IQ samples buffer (from a File)
+//     pub magnitude: *mut u16, // Magnitude vector
+//     pub timestampBlk: u64,   // Timestamp of the start of the current block
+//     // pub stSystemTimeBlk: timeb, // System time when RTL passed us currently processing this block
+//     pub fd: c_int,            // --ifile option file descriptor
+//     pub icao_cache: *mut u32, // Recently seen ICAO addresses cache
+//     pub maglut: *mut u16,     // I/Q -> Magnitude lookup table
+//     pub exit: c_int,          // Exit from the main loop when true
+//
+//     // RTLSDR
+//     pub dev_index: c_int,
+//     pub gain: c_int,
+//     pub enable_agc: c_int,
+//     // pub dev: *mut rtlsdr_dev_t,
+//     pub freq: c_int,
+//     pub ppm_error: c_int,
+//
+//     // Networking
+//     // pub aneterr: [c_char; ANET_ERR_LEN],
+//     // pub clients: *mut client,  // Our clients
+//     pub sbsos: c_int,          // SBS output listening socket
+//     pub ros: c_int,            // Raw output listening socket
+//     pub ris: c_int,            // Raw input listening socket
+//     pub bos: c_int,            // Beast output listening socket
+//     pub bis: c_int,            // Beast input listening socket
+//     pub https: c_int,          // HTTP listening socket
+//     pub rawOut: *mut c_char,   // Buffer for building raw output data
+//     pub rawOutUsed: c_int,     // How much of the buffer is currently used
+//     pub beastOut: *mut c_char, // Buffer for building beast output data
+//     pub beastOutUsed: c_int,   // How much if the buffer is currently used
+//
+//     // Configuration
+//     // pub filename: *mut c_char,            // Input form file, --ifile option
+//     pub phase_enhance: c_int,             // Enable phase enhancement if true
+//     pub nfix_crc: c_int,                  // Number of crc bit error(s) to correct
+//     pub check_crc: c_int,                 // Only display messages with good CRC
+//     pub raw: c_int,                       // Raw output format
+//     pub beast: c_int,                     // Beast binary format output
+//     pub mode_ac: c_int,                   // Enable decoding of SSR Modes A & C
+//     pub debug: c_int,                     // Debugging mode
+//     pub net: c_int,                       // Enable networking
+//     pub net_only: c_int,                  // Enable just networking
+//     pub net_heartbeat_count: c_int,       // TCP heartbeat counter
+//     pub net_heartbeat_rate: c_int,        // TCP heartbeat rate
+//     pub net_output_sbs_port: c_int,       // SBS output TCP port
+//     pub net_output_raw_size: c_int,       // Minimum Size of the output raw data
+//     pub net_output_raw_rate: c_int,       // Rate (in 64mS increments) of output raw data
+//     pub net_output_raw_rate_count: c_int, // Rate (in 64mS increments) of output raw data
+//     pub net_output_raw_port: c_int,       // Raw output TCP port
+//     pub net_input_raw_port: c_int,        // Raw input TCP port
+//     pub net_output_beast_port: c_int,     // Beast output TCP port
+//     pub net_input_beast_port: c_int,      // Beast input TCP port
+//     // pub net_bind_address: *mut c_char,    // Bind address
+//     pub net_http_port: c_int,           // HTTP port
+//     pub net_sndbuf_size: c_int,         // TCP output buffer size (64Kb * 2^n)
+//     pub quiet: c_int,                   // Suppress stdout
+//     pub interactive: c_int,             // Interactive mode
+//     pub interactive_rows: c_int,        // Interactive mode: max number of rows
+//     pub interactive_display_ttl: c_int, // Interactive mode: TTL display
+//     pub interactive_delete_ttl: c_int,  // Interactive mode: TTL before deletion
+//     pub stats: c_int,                   // Print stats at exit in --ifile mode
+//     pub onlyaddr: c_int,                // Print only ICAO addresses
+//     pub metric: c_int,                  // Use metric units
+//     pub mlat: c_int, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
+//     pub interactive_rtl1090: c_int, // flight table in interactive mode is formatted like RTL1090
+//
+//     // User details
+//     pub fUserLat: c_double, // Users receiver/antenna lat/lon needed for initial surface location
+//     pub fUserLon: c_double, // Users receiver/antenna lat/lon needed for initial surface location
+//     pub bUserFlags: c_int,  // Flags relating to the user details
+//
+//     // Interactive mode
+//     pub aircrafts: *mut aircraft,
+//     pub interactive_last_update: u64, // Last screen update in milliseconds
+//     pub last_cleanup_time: time_t,    // Last cleanup time in seconds
+//
+//     // DF List mode
+//     pub bEnableDFLogging: c_int, // Set to enable DF Logging
+//     // pub pDF_mutex: pthread_mutex_t, // Mutex to synchronize pDF access
+//     // pub pDF: *mut stDF,             // Pointer to DF list
+//
+//     // DF List mode
+//     pub stat_valid_preamble: c_uint,
+//     pub stat_demodulated0: c_uint,
+//     pub stat_demodulated1: c_uint,
+//     pub stat_demodulated2: c_uint,
+//     pub stat_demodulated3: c_uint,
+//     pub stat_goodcrc: c_uint,
+//     pub stat_badcrc: c_uint,
+//     pub stat_fixed: c_uint,
+//
+//     // Histogram of fixed bit errors: index 0 for single bit errors,
+//     // index 1 for double bit errors etc.
+//     pub stat_bit_fix: [c_uint; MODES_MAX_BITERRORS],
+//
+//     pub stat_http_requests: c_uint,
+//     pub stat_sbs_connections: c_uint,
+//     pub stat_raw_connections: c_uint,
+//     pub stat_beast_connections: c_uint,
+//     pub stat_out_of_phase: c_uint,
+//     pub stat_ph_demodulated0: c_uint,
+//     pub stat_ph_demodulated1: c_uint,
+//     pub stat_ph_demodulated2: c_uint,
+//     pub stat_ph_demodulated3: c_uint,
+//     pub stat_ph_goodcrc: c_uint,
+//     pub stat_ph_badcrc: c_uint,
+//     pub stat_ph_fixed: c_uint,
+//     // Histogram of fixed bit errors: index 0 for single bit errors,
+//     // index 1 for double bit errors etc.
+//     pub stat_ph_bit_fix: [c_uint; MODES_MAX_BITERRORS],
+//
+//     pub stat_DF_Len_Corrected: c_uint,
+//     pub stat_DF_Type_Corrected: c_uint,
+//     pub stat_ModeAC: c_uint,
+//
+//     pub stat_blocks_processed: c_uint,
+//     pub stat_blocks_dropped: c_uint,
+// }
+
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct modesMessage {
@@ -439,9 +579,230 @@ pub struct modesMessage {
     pub bFlags: c_int, // Flags related to fields in this structure
 }
 
+// impl Default for modes {
+//     fn default() -> Self {
+//         modes {
+//             reader_thread: 0,
+//             iDataIn: 0,
+//             iDataOut: 0,
+//             iDataReady: 0,
+//             gain: MODES_MAX_GAIN,
+//             enable_agc: 0,
+//             freq: MODES_DEFAULT_FREQ,
+//             ppm_error: MODES_DEFAULT_PPM,
+//             sbsos: 0,
+//             ros: 0,
+//             ris: 0,
+//             bos: 0,
+//             bis: 0,
+//             check_crc: 1,
+//             raw: 0,
+//             beast: 0,
+//             mode_ac: 0,
+//             debug: 0,
+//             net: 0,
+//             net_only: 0,
+//             net_heartbeat_count: 0,
+//             net_heartbeat_rate: MODES_NET_HEARTBEAT_RATE,
+//             net_output_sbs_port: MODES_NET_OUTPUT_SBS_PORT,
+//             net_output_raw_size: 0,
+//             net_output_raw_rate: 0,
+//             net_output_raw_rate_count: 0,
+//             net_output_raw_port: MODES_NET_OUTPUT_RAW_PORT,
+//             net_input_raw_port: MODES_NET_INPUT_RAW_PORT,
+//             net_output_beast_port: MODES_NET_OUTPUT_BEAST_PORT,
+//             net_input_beast_port: MODES_NET_INPUT_BEAST_PORT,
+//             net_http_port: MODES_NET_HTTP_PORT,
+//             net_sndbuf_size: 0,
+//             quiet: 0,
+//             interactive: 0,
+//             interactive_rows: 80, // getTermRows(),
+//             interactive_delete_ttl: MODES_INTERACTIVE_DELETE_TTL,
+//             stats: 0,
+//             onlyaddr: 0,
+//             metric: 0,
+//             mlat: 0,
+//             interactive_display_ttl: MODES_INTERACTIVE_DISPLAY_TTL,
+//             fUserLat: MODES_USER_LATITUDE_DFLT,
+//             fUserLon: MODES_USER_LONGITUDE_DFLT,
+//
+//             bUserFlags: 0,
+//             aircrafts: ptr::null_mut(),
+//             interactive_last_update: 0,
+//             last_cleanup_time: 0,
+//             bEnableDFLogging: 0,
+//             stat_valid_preamble: 0,
+//             stat_demodulated0: 0,
+//             stat_demodulated1: 0,
+//             stat_demodulated2: 0,
+//             stat_demodulated3: 0,
+//             stat_goodcrc: 0,
+//             stat_badcrc: 0,
+//             stat_fixed: 0,
+//             stat_bit_fix: [0; MODES_MAX_BITERRORS],
+//             stat_http_requests: 0,
+//             stat_sbs_connections: 0,
+//             stat_raw_connections: 0,
+//             stat_beast_connections: 0,
+//             stat_out_of_phase: 0,
+//             stat_ph_demodulated0: 0,
+//             stat_ph_demodulated1: 0,
+//             stat_ph_demodulated2: 0,
+//             stat_ph_demodulated3: 0,
+//             stat_ph_goodcrc: 0,
+//             stat_ph_badcrc: 0,
+//             stat_ph_fixed: 0,
+//             stat_ph_bit_fix: [0; MODES_MAX_BITERRORS],
+//             stat_DF_Len_Corrected: 0,
+//             stat_DF_Type_Corrected: 0,
+//             stat_ModeAC: 0,
+//             stat_blocks_processed: 0,
+//             icao_cache: ptr::null_mut(),
+//             magnitude: ptr::null_mut(),
+//             timestampBlk: 0,
+//             maglut: ptr::null_mut(),
+//
+//             exit: 0,
+//             rawOut: ptr::null_mut(),
+//             rawOutUsed: 0,
+//             beastOut: ptr::null_mut(),
+//             beastOutUsed: 0,
+//
+//             phase_enhance: 0,
+//             iDataLost: 0,
+//             fd: 0,
+//             dev_index: 0,
+//             https: 0,
+//             nfix_crc: 0,
+//             interactive_rtl1090: 0,
+//             stat_blocks_dropped: 0,
+//         }
+//     }
+// }
+
+fn cmp_errorinfo(e0: &errorinfo, e1: &errorinfo) -> Ordering {
+    e0.syndrome.cmp(&e1.syndrome)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn modesInitErrorInfoC(
+    table_ptr: *mut errorinfo,
+    table_len: c_int,
+    nfix_crc: c_int,
+) {
+    let bitErrorTable = &mut *ptr::slice_from_raw_parts_mut(table_ptr, table_len as usize);
+    modesInitErrorInfoImpl(bitErrorTable, nfix_crc);
+}
+
+// Compute the table of all syndromes for 1-bit and 2-bit error vectors
+pub unsafe fn modesInitErrorInfoImpl(bitErrorTable: &mut [errorinfo], nfix_crc: c_int) {
+    let mut msg: [c_uchar; 14] = [0; MODES_LONG_MSG_BYTES as usize];
+    let mut j: c_int;
+    let mut n: c_int = 0;
+    let mut crc: u32;
+
+    // Add all possible single and double bit errors
+    // don't include errors in first 5 bits (DF type)
+    let mut i = 5 as c_int;
+    while i < MODES_LONG_MSG_BITS {
+        let bytepos0: c_int = i >> 3 as c_int;
+        let mask0: c_int = (1 as c_int) << 7 as c_int - (i & 7 as c_int);
+        // revert error0
+        msg[bytepos0 as usize] = (msg[bytepos0 as usize] as c_int ^ mask0) as c_uchar; // create error0
+        crc = modesChecksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // single bit error case
+        bitErrorTable[n as usize].syndrome = crc;
+        bitErrorTable[n as usize].bits = 1 as c_int;
+        bitErrorTable[n as usize].pos[0 as c_int as usize] = i;
+        bitErrorTable[n as usize].pos[1 as c_int as usize] = -(1 as c_int);
+        n += 1 as c_int;
+        if nfix_crc > 1 as c_int {
+            j = i + 1 as c_int;
+            while j < MODES_LONG_MSG_BITS {
+                let bytepos1: c_int = j >> 3 as c_int;
+                let mask1: c_int = (1 as c_int) << 7 as c_int - (j & 7 as c_int);
+                // revert error1
+                msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar; // create error1
+                crc = modesChecksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // two bit error case
+                if n >= bitErrorTable.len() as c_int {
+                    break;
+                }
+                bitErrorTable[n as usize].syndrome = crc;
+                bitErrorTable[n as usize].bits = 2 as c_int;
+                bitErrorTable[n as usize].pos[0 as c_int as usize] = i;
+                bitErrorTable[n as usize].pos[1 as c_int as usize] = j;
+                n += 1 as c_int;
+                msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar;
+                j += 1
+            }
+        }
+        msg[bytepos0 as usize] = (msg[bytepos0 as usize] as c_int ^ mask0) as c_uchar;
+        i += 1
+    }
+
+    bitErrorTable.sort_by(cmp_errorinfo)
+}
+
 fn now() -> u64 {
-    match SystemTime::now().duration_since(time::UNIX_EPOCH) {
-        Ok(n) => n.as_secs(),
-        Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+    SystemTime::now()
+        .duration_since(time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .expect("now doesn't fit in u64")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bit_error_table() {
+        let mut bit_error_table = [errorinfo {
+            syndrome: 0,
+            bits: 0,
+            pos: [0; 2],
+        }; NERRORINFO];
+        let nfix_crc_agressive = 2; // TODO: test with 1 and 2
+        unsafe { modesInitErrorInfoImpl(&mut bit_error_table, nfix_crc_agressive) };
+
+        // Test code: report if any syndrome appears at least twice. In this
+        // case the correction cannot be done without ambiguity.
+        // Tried it, does not happen for 1- and 2-bit errors.
+        let errorinfo_zero = errorinfo {
+            syndrome: 0,
+            bits: 0,
+            pos: [0; 2],
+        };
+        for i in 1..bit_error_table.len() {
+            // The first 550 are zero in the C impl
+            if i <= 549 {
+                assert_eq!(bit_error_table[i - 1], errorinfo_zero);
+                assert_eq!(bit_error_table[i], errorinfo_zero);
+            } else {
+                assert_ne!(
+                    bit_error_table[i - 1].syndrome,
+                    bit_error_table[i].syndrome,
+                    "modesInitErrorInfo: Collision for syndrome {:0x}\n",
+                    bit_error_table[i].syndrome
+                )
+            }
+        }
+    }
+    /*
+    for (i = 1;  i < NERRORINFO;  i++) {
+        if (bitErrorTable[i-1].syndrome == bitErrorTable[i].syndrome) {
+            fprintf(stderr, "modesInitErrorInfo: Collision for syndrome %06x\n",
+                            (int)bitErrorTable[i].syndrome);
+        }
+    }
+
+    for (i = 0;  i < NERRORINFO;  i++) {
+        printf("syndrome %06x    bit0 %3d    bit1 %3d\n",
+               bitErrorTable[i].syndrome,
+               bitErrorTable[i].pos0, bitErrorTable[i].pos1);
+    }
+    */
+
+    #[test]
+    fn test_fix_bit_errors() {
+        // TODO: Port commented out fixBitErrors test code from mode_s.c
     }
 }
