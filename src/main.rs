@@ -6,7 +6,7 @@ use io::BufReader;
 use std::fs::File;
 use std::io::Read;
 use std::os::raw::c_int;
-use std::{env, io, process};
+use std::{env, io, mem, process};
 
 use ten_ninety::{
     compute_magnitude_vector_impl, detect_mode_s, MODES_ASYNC_BUF_SAMPLES, MODES_ASYNC_BUF_SIZE,
@@ -51,15 +51,17 @@ fn main() -> Result<(), io::Error> {
         }
 
         // Process this buffer
+        let mut magnitude = Vec::new();
+        mem::swap(&mut state.magnitude, &mut magnitude);
         unsafe {
             detect_mode_s(
-                state.magnitude,
-                MODES_ASYNC_BUF_SAMPLES as u32,
+                &mut magnitude[0..MODES_ASYNC_BUF_SAMPLES],
                 &mut state as *mut _,
                 bit_error_table.as_ptr(),
                 bit_error_table.len() as c_int,
             );
         }
+        mem::swap(&mut state.magnitude, &mut magnitude);
     }
 
     Ok(())

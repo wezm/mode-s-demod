@@ -115,7 +115,7 @@ struct Aircraft {
 #[derive(Clone)]
 #[repr(C)]
 pub struct ModeS {
-    pub magnitude: *mut u16, // Magnitude vector
+    pub magnitude: Vec<u16>, // Magnitude vector
     timestamp_blk: u64,      // Timestamp of the start of the current block
     icao_cache: *mut u32,    // Recently seen ICAO addresses cache
     maglut: *mut u16,        // I/Q -> Magnitude lookup table
@@ -281,7 +281,12 @@ impl Default for ModeS {
             stat_df_type_corrected: 0,
             stat_mode_ac: 0,
             icao_cache: ptr::null_mut(),
-            magnitude: ptr::null_mut(),
+            magnitude: vec![
+                0;
+                MODES_ASYNC_BUF_SAMPLES
+                    + MODES_PREAMBLE_SAMPLES
+                    + MODES_LONG_MSG_SAMPLES
+            ],
             timestamp_blk: 0,
             maglut: ptr::null_mut(),
 
@@ -368,11 +373,6 @@ pub fn modes_init() -> (ModeS, [errorinfo; NERRORINFO]) {
     let mut icao_cache = Box::new([0u32; MODES_ICAO_CACHE_LEN as usize * 2]);
     state.icao_cache = icao_cache.as_mut_ptr();
     Box::into_raw(icao_cache);
-
-    let mut magnitude =
-        Box::new([0u16; MODES_ASYNC_BUF_SAMPLES + MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES]);
-    state.magnitude = magnitude.as_mut_ptr();
-    Box::into_raw(magnitude);
 
     let mut beast_out = Box::new([0 as c_char; MODES_RAWOUT_BUF_SIZE]);
     state.beast_out = beast_out.as_mut_ptr();

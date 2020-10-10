@@ -1361,12 +1361,15 @@ impl ModesMessage {
 pub unsafe fn compute_magnitude_vector_impl(mut p: *mut u16, mode_s: *mut ModeS) {
     let mut m: *mut u16 = (*mode_s)
         .magnitude
-        .offset((MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES) as isize)
-        as *mut u16;
+        .as_mut_ptr()
+        .offset((MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES) as isize);
 
     ptr::copy_nonoverlapping(
-        (*mode_s).magnitude.offset(MODES_ASYNC_BUF_SAMPLES as isize),
-        (*mode_s).magnitude,
+        (*mode_s)
+            .magnitude
+            .as_ptr()
+            .offset(MODES_ASYNC_BUF_SAMPLES as isize),
+        (*mode_s).magnitude.as_mut_ptr(),
         MODES_PREAMBLE_SIZE + MODES_LONG_MSG_SIZE,
     );
 
@@ -1520,12 +1523,13 @@ unsafe fn apply_phase_correction(p_payload: *mut u16) {
 // stream of bits and passed to the function to display it.
 //
 pub unsafe fn detect_mode_s(
-    m: *mut u16,
-    mlen: u32,
+    m: &mut [u16],
     mode_s: *mut ModeS,
     bit_errors_ptr: *const errorinfo,
     bit_errors_len: c_int,
 ) {
+    let mlen = m.len() as u32; // FIXME cast
+    let m = m.as_mut_ptr();
     let mut mm: ModesMessage = ModesMessage::default();
     let mut msg = [0; MODES_LONG_MSG_BYTES];
     let mut p_msg: *mut c_uchar;
@@ -2521,7 +2525,7 @@ pub(crate) fn decode_cpr_relative(
     0
 }
 
-fn dump_raw_message(descr: *const c_char, _msg: *mut c_uchar, _m: *mut u16, _offset: u32) {
+fn dump_raw_message(descr: *const c_char, _msg: *mut c_uchar, _m: *const u16, _offset: u32) {
     // printf("\n--- %s\n    ", descr);
     // for (j = 0; j < MODES_LONG_MSG_BYTES; j++) {
     //     printf("%02x",msg[j]);
