@@ -2,9 +2,7 @@
 
 use std::cmp::Ordering;
 use std::convert::TryFrom;
-use std::os::raw::{
-    c_char, c_double, c_int, c_long, c_uchar, c_uint,
-};
+use std::os::raw::{c_char, c_double, c_int, c_long, c_uchar, c_uint};
 use std::time::SystemTime;
 use std::{mem, ptr, time};
 
@@ -84,48 +82,36 @@ type time_t = c_long;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
-pub struct aircraft {
-    pub addr: u32,                 // ICAO address
-    pub flight: [c_char; 16],      // Flight number
-    pub signalLevel: [c_uchar; 8], // Last 8 Signal Amplitudes
-    pub altitude: c_int,           // Altitude
-    pub speed: c_int,              // Velocity
-    pub track: c_int,              // Angle of flight
-    pub vert_rate: c_int,          // Vertical rate.
-    pub seen: time_t,              // Time at which the last packet was received
-    pub seenLatLon: time_t,        // Time at which the last lat long was calculated
-    pub timestamp: u64,            // Timestamp at which the last packet was received
-    pub timestampLatLon: u64,      // Timestamp at which the last lat long was calculated
-    pub messages: c_long,          // Number of Mode S messages received
-    pub modeA: c_int,              // Squawk
-    pub modeC: c_int,              // Altitude
-    pub modeAcount: c_long,        // Mode A Squawk hit Count
-    pub modeCcount: c_long,        // Mode C Altitude hit Count
-    pub modeACflags: c_int,        // Flags for mode A/C recognition
+struct aircraft {
+    addr: u32,                 // ICAO address
+    flight: [c_char; 16],      // Flight number
+    signalLevel: [c_uchar; 8], // Last 8 Signal Amplitudes
+    altitude: c_int,           // Altitude
+    speed: c_int,              // Velocity
+    track: c_int,              // Angle of flight
+    vert_rate: c_int,          // Vertical rate.
+    seen: time_t,              // Time at which the last packet was received
+    seenLatLon: time_t,        // Time at which the last lat long was calculated
+    timestamp: u64,            // Timestamp at which the last packet was received
+    timestampLatLon: u64,      // Timestamp at which the last lat long was calculated
+    messages: c_long,          // Number of Mode S messages received
+    modeA: c_int,              // Squawk
+    modeC: c_int,              // Altitude
+    modeAcount: c_long,        // Mode A Squawk hit Count
+    modeCcount: c_long,        // Mode C Altitude hit Count
+    modeACflags: c_int,        // Flags for mode A/C recognition
 
     // Encoded latitude and longitude as extracted by odd and even CPR encoded messages
-    pub odd_cprlat: c_int,
-    pub odd_cprlon: c_int,
-    pub even_cprlat: c_int,
-    pub even_cprlon: c_int,
-    pub odd_cprtime: u64,
-    pub even_cprtime: u64,
-    pub lat: c_double,
-    pub lon: c_double,       // Coordinated obtained from CPR encoded data
-    pub bFlags: c_int,       // Flags related to valid fields in this structure
-    pub next: *mut aircraft, // Next aircraft in our linked list
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct stDF {
-    pub pNext: *mut stDF,         // Pointer to next item in the linked list
-    pub pPrev: *mut stDF,         // Pointer to previous item in the linked list
-    pub pAircraft: *mut aircraft, // Pointer to the Aircraft structure for this DF
-    pub seen: time_t,             // Dos/UNIX Time at which the this packet was received
-    pub llTimestamp: u64,         // Timestamp at which the this packet was received
-    pub addr: u32,                // Timestamp at which the this packet was received
-    pub msg: [c_uchar; MODES_LONG_MSG_BYTES], // the binary
+    odd_cprlat: c_int,
+    odd_cprlon: c_int,
+    even_cprlat: c_int,
+    even_cprlon: c_int,
+    odd_cprtime: u64,
+    even_cprtime: u64,
+    lat: c_double,
+    lon: c_double,       // Coordinated obtained from CPR encoded data
+    bFlags: c_int,       // Flags related to valid fields in this structure
+    next: *mut aircraft, // Next aircraft in our linked list
 }
 
 // Program global state
@@ -133,9 +119,9 @@ pub struct stDF {
 #[repr(C)]
 pub struct modes {
     pub magnitude: *mut u16, // Magnitude vector
-    timestampBlk: u64,   // Timestamp of the start of the current block
-    icao_cache: *mut u32, // Recently seen ICAO addresses cache
-    maglut: *mut u16,     // I/Q -> Magnitude lookup table
+    timestampBlk: u64,       // Timestamp of the start of the current block
+    icao_cache: *mut u32,    // Recently seen ICAO addresses cache
+    maglut: *mut u16,        // I/Q -> Magnitude lookup table
 
     // Networking
     rawOut: *mut c_char,   // Buffer for building raw output data
@@ -156,12 +142,12 @@ pub struct modes {
     net_output_raw_size: c_int,       // Minimum Size of the output raw data
     net_output_raw_rate: c_int,       // Rate (in 64mS increments) of output raw data
     net_output_raw_rate_count: c_int, // Rate (in 64mS increments) of output raw data
-    net_sndbuf_size: c_int,         // TCP output buffer size (64Kb * 2^n)
-    quiet: c_int,                   // Suppress stdout
-    interactive: c_int,             // Interactive mode
-    interactive_display_ttl: c_int, // Interactive mode: TTL display
-    stats: c_int,                   // Print stats at exit in --ifile mode
-    onlyaddr: c_int,                // Print only ICAO addresses
+    net_sndbuf_size: c_int,           // TCP output buffer size (64Kb * 2^n)
+    quiet: c_int,                     // Suppress stdout
+    interactive: c_int,               // Interactive mode
+    interactive_display_ttl: c_int,   // Interactive mode: TTL display
+    stats: c_int,                     // Print stats at exit in --ifile mode
+    onlyaddr: c_int,                  // Print only ICAO addresses
     mlat: c_int, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
 
     // User details
@@ -208,46 +194,46 @@ pub struct modes {
 
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
-pub struct modesMessage {
-    pub msg: [c_uchar; MODES_LONG_MSG_BYTES], // Binary message.
-    pub msgbits: c_int,                       // Number of bits in message
-    pub msgtype: c_int,                       // Downlink format #
-    pub crcok: c_int,                         // True if CRC was valid
-    pub crc: u32,                             // Message CRC
-    pub correctedbits: c_int,                 // No. of bits corrected
-    pub corrected: [c_char; MODES_MAX_BITERRORS], // corrected bit positions
-    pub addr: u32,                            // ICAO Address from bytes 1 2 and 3
-    pub phase_corrected: c_int,               // True if phase correction was applied
-    pub timestampMsg: u64,                    // Timestamp of the message
-    pub remote: c_int,                        // If set this message is from a remote station
-    pub signalLevel: c_uchar,                 // Signal Amplitude
+struct modesMessage {
+    msg: [c_uchar; MODES_LONG_MSG_BYTES],     // Binary message.
+    msgbits: c_int,                           // Number of bits in message
+    msgtype: c_int,                           // Downlink format #
+    crcok: c_int,                             // True if CRC was valid
+    crc: u32,                                 // Message CRC
+    correctedbits: c_int,                     // No. of bits corrected
+    corrected: [c_char; MODES_MAX_BITERRORS], // corrected bit positions
+    addr: u32,                                // ICAO Address from bytes 1 2 and 3
+    phase_corrected: c_int,                   // True if phase correction was applied
+    timestampMsg: u64,                        // Timestamp of the message
+    remote: c_int,                            // If set this message is from a remote station
+    signalLevel: c_uchar,                     // Signal Amplitude
 
     // DF 11
-    pub ca: c_int, // Responder capabilities
-    pub iid: c_int,
+    ca: c_int, // Responder capabilities
+    iid: c_int,
 
     // DF 17, DF 18
-    pub metype: c_int,        // Extended squitter message type.
-    pub mesub: c_int,         // Extended squitter message subtype.
-    pub heading: c_int,       // Reported by aircraft, or computed from from EW and NS velocity
-    pub raw_latitude: c_int,  // Non decoded latitude.
-    pub raw_longitude: c_int, // Non decoded longitude.
-    pub fLat: c_double,       // Coordinates obtained from CPR encoded data if/when decoded
-    pub fLon: c_double,       // Coordinates obtained from CPR encoded data if/when decoded
-    pub flight: [c_char; 16], // 8 chars flight number.
-    pub ew_velocity: c_int,   // E/W velocity.
-    pub ns_velocity: c_int,   // N/S velocity.
-    pub vert_rate: c_int,     // Vertical rate.
-    pub velocity: c_int,      // Reported by aircraft, or computed from from EW and NS velocity
+    metype: c_int,        // Extended squitter message type.
+    mesub: c_int,         // Extended squitter message subtype.
+    heading: c_int,       // Reported by aircraft, or computed from from EW and NS velocity
+    raw_latitude: c_int,  // Non decoded latitude.
+    raw_longitude: c_int, // Non decoded longitude.
+    fLat: c_double,       // Coordinates obtained from CPR encoded data if/when decoded
+    fLon: c_double,       // Coordinates obtained from CPR encoded data if/when decoded
+    flight: [c_char; 16], // 8 chars flight number.
+    ew_velocity: c_int,   // E/W velocity.
+    ns_velocity: c_int,   // N/S velocity.
+    vert_rate: c_int,     // Vertical rate.
+    velocity: c_int,      // Reported by aircraft, or computed from from EW and NS velocity
 
     // DF4, DF5, DF20, DF21
-    pub fs: c_int,    // Flight status for DF4,5,20,21
-    pub modeA: c_int, // 13 bits identity (Squawk).
+    fs: c_int,    // Flight status for DF4,5,20,21
+    modeA: c_int, // 13 bits identity (Squawk).
 
     // Fields used by multiple message types.
-    pub altitude: c_int,
-    pub unit: c_int,
-    pub bFlags: c_int, // Flags related to fields in this structure
+    altitude: c_int,
+    unit: c_int,
+    bFlags: c_int, // Flags related to fields in this structure
 }
 
 impl Default for modes {
@@ -375,119 +361,29 @@ fn now() -> u64 {
 
 pub fn modes_init() -> (modes, [errorinfo; NERRORINFO]) {
     let mut state = modes {
-        // filename: "", // --ifile
         nfix_crc: MODES_MAX_BITERRORS as c_int, // --aggressive
         phase_enhance: 1,                       // --phase-enhance
         ..Default::default()
     };
-    // struct errorinfo bitErrorTable[NERRORINFO];
     let mut bit_error_table = [errorinfo::default(); NERRORINFO];
-
-    // pthread_mutex_init(&mut Modes.pDF_mutex,
-    //                    NULL_0 as *const pthread_mutexattr_t);
-    // pthread_mutex_init(&mut Modes.data_mutex,
-    //                    NULL_0 as *const pthread_mutexattr_t);
-    // pthread_cond_init(&mut Modes.data_cond,
-    //                   NULL_0 as *const pthread_condattr_t);
 
     // Allocate the various buffers used by Modes
     let mut icao_cache = Box::new([0u32; MODES_ICAO_CACHE_LEN as usize * 2]);
     state.icao_cache = icao_cache.as_mut_ptr();
     Box::into_raw(icao_cache);
 
-    // Modes.icao_cache =
-    //     malloc((::std::mem::size_of::<u32>() as
-    //         c_ulong).wrapping_mul(MODES_ICAO_CACHE_LEN as
-    //         c_ulong).wrapping_mul(2
-    //         as
-    //         c_int
-    //         as
-    //         c_ulong))
-    //         as *mut u32;
-    // if Modes.icao_cache.is_null() ||
-    //     {
-    //         Modes.pFileData =
-    //             malloc(MODES_ASYNC_BUF_SIZE as c_ulong) as
-    //                 *mut u16;
-    //         Modes.pFileData.is_null()
-    //     } ||
-    //     {
-    //         Modes.magnitude =
-    //             malloc((MODES_ASYNC_BUF_SIZE as
-    //                 c_ulong).wrapping_add((MODES_PREAMBLE_SAMPLES
-    //                 as
-    //                 c_ulong).wrapping_mul(::std::mem::size_of::<u16>()
-    //                 as
-    //                 c_ulong)).wrapping_add((MODES_LONG_MSG_SAMPLES
-    //                 as
-    //                 c_ulong).wrapping_mul(::std::mem::size_of::<u16>()
-    //                 as
-    //                 c_ulong)))
-    //                 as *mut u16;
-    //         Modes.magnitude.is_null()
     let mut magnitude =
         Box::new([0u16; MODES_ASYNC_BUF_SAMPLES + MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES]);
     state.magnitude = magnitude.as_mut_ptr();
     Box::into_raw(magnitude);
-    //     } ||
-    //     {
-    //         Modes.maglut =
-    //             malloc((::std::mem::size_of::<u16>() as
-    //                 c_ulong).wrapping_mul(256 as c_int
-    //                 as
-    //                 c_ulong).wrapping_mul(256
-    //                 as
-    //                 c_int
-    //                 as
-    //                 c_ulong))
-    //                 as *mut u16;
-    //         Modes.maglut.is_null()
-    //     } ||
-    //     {
-    //         Modes.beastOut =
-    //             malloc(MODES_RAWOUT_BUF_SIZE as c_ulong) as
-    //                 *mut c_char;
-    //         Modes.beastOut.is_null()
+
     let mut beast_out = Box::new([0 as c_char; MODES_RAWOUT_BUF_SIZE]);
     state.beastOut = beast_out.as_mut_ptr();
     Box::into_raw(beast_out);
-    //     } ||
-    //     {
-    //         Modes.rawOut =
-    //             malloc(MODES_RAWOUT_BUF_SIZE as c_ulong) as
-    //                 *mut c_char;
-    //         Modes.rawOut.is_null()
+
     let mut raw_out = Box::new([0 as c_char; MODES_RAWOUT_BUF_SIZE]);
     state.rawOut = raw_out.as_mut_ptr();
     Box::into_raw(raw_out);
-    //     } {
-    //     fprintf(stderr,
-    //             b"Out of memory allocating data buffer.\n\x00" as *const u8 as
-    //                 *const c_char);
-    //     exit(1 as c_int);
-    // }
-    //
-    // // Clear the buffers that have just been allocated, just in-case
-    // memset(Modes.icao_cache as *mut c_void, 0 as c_int,
-    //        (::std::mem::size_of::<u32>() as
-    //            c_ulong).wrapping_mul(MODES_ICAO_CACHE_LEN as
-    //            c_ulong).wrapping_mul(2
-    //            as
-    //            c_int
-    //            as
-    //            c_ulong));
-    // memset(Modes.pFileData as *mut c_void, 127 as c_int,
-    //        MODES_ASYNC_BUF_SIZE as c_ulong);
-    // memset(Modes.magnitude as *mut c_void, 0 as c_int,
-    //        (MODES_ASYNC_BUF_SIZE as
-    //            c_ulong).wrapping_add((MODES_PREAMBLE_SAMPLES as
-    //            c_ulong).wrapping_mul(::std::mem::size_of::<u16>()
-    //            as
-    //            c_ulong)).wrapping_add((MODES_LONG_MSG_SAMPLES
-    //            as
-    //            c_ulong).wrapping_mul(::std::mem::size_of::<u16>()
-    //            as
-    //            c_ulong)));
 
     // Validate the users Lat/Lon home location inputs
     if state.fUserLat > 90.0f64
@@ -523,14 +419,6 @@ pub fn modes_init() -> (modes, [errorinfo; NERRORINFO]) {
         state.net_sndbuf_size = MODES_NET_SNDBUF_MAX
     }
 
-    // // Initialise the Block Timers to something half sensible
-    // ftime(&mut Modes.stSystemTimeBlk);
-    // i = 0 as c_int;
-    // while i < MODES_ASYNC_BUF_NUMBER {
-    //     Modes.stSystemTimeRTL[i as usize] = Modes.stSystemTimeBlk;
-    //     i += 1
-    // }
-    //
     // Each I and Q value varies from 0 to 255, which represents a range from -1 to +1. To get from the
     // unsigned (0-255) range you therefore subtract 127 (or 128 or 127.5) from each I and Q, giving you
     // a range from -127 to +128 (or -128 to +127, or -127.5 to +127.5)..
