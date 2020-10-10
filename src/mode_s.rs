@@ -2314,18 +2314,13 @@ fn cpr_dlon_function(lat: c_double, fflag: c_int, surface: c_int) -> c_double {
     (if surface != 0 { 90.0f64 } else { 360.0f64 }) / cpr_n_function(lat, fflag) as c_double
 }
 
-pub(crate) unsafe fn decode_cpr(
-    mode_s: &ModeS,
-    a: *mut Aircraft,
-    fflag: c_int,
-    surface: c_int,
-) -> c_int {
+pub(crate) fn decode_cpr(mode_s: &ModeS, a: &mut Aircraft, fflag: c_int, surface: c_int) -> c_int {
     let air_dlat0 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 60.0f64;
     let air_dlat1 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 59.0f64;
-    let lat0 = (*a).even_cprlat as c_double;
-    let lat1 = (*a).odd_cprlat as c_double;
-    let lon0 = (*a).even_cprlon as c_double;
-    let lon1 = (*a).odd_cprlon as c_double;
+    let lat0 = a.even_cprlat as c_double;
+    let lat1 = a.odd_cprlat as c_double;
+    let lon0 = a.even_cprlon as c_double;
+    let lon1 = a.odd_cprlon as c_double;
 
     // Compute the Latitude Index "j"
     let j = ((59 as c_int as c_double * lat0 - 60 as c_int as c_double * lat1)
@@ -2343,11 +2338,11 @@ pub(crate) unsafe fn decode_cpr(
 
     if surface != 0 {
         // If we're on the ground, make sure we have a (likely) valid Lat/Lon
-        if (*a).b_flags & MODES_ACFLAGS_LATLON_VALID != 0
-            && ((now - (*a).seen_lat_lon) as c_int) < mode_s.interactive_display_ttl
+        if a.b_flags & MODES_ACFLAGS_LATLON_VALID != 0
+            && ((now - a.seen_lat_lon) as c_int) < mode_s.interactive_display_ttl
         {
-            surface_rlat = (*a).lat;
-            surface_rlon = (*a).lon
+            surface_rlat = a.lat;
+            surface_rlon = a.lon
         } else if mode_s.b_user_flags & MODES_USER_LATLON_VALID != 0 {
             surface_rlat = mode_s.f_user_lat;
             surface_rlon = mode_s.f_user_lon
@@ -2389,9 +2384,9 @@ pub(crate) unsafe fn decode_cpr(
             / 131072.0f64
             + 0.5f64)
             .floor() as c_int;
-        (*a).lon = cpr_dlon_function(rlat1, 1 as c_int, surface)
+        a.lon = cpr_dlon_function(rlat1, 1 as c_int, surface)
             * (cpr_mod_function(m, ni) as c_double + lon1 / 131072 as c_int as c_double);
-        (*a).lat = rlat1
+        a.lat = rlat1
     } else {
         // Use even packet
         let ni_0 = cpr_n_function(rlat0, 0 as c_int);
@@ -2400,21 +2395,21 @@ pub(crate) unsafe fn decode_cpr(
             / 131072 as c_int as c_double
             + 0.5f64)
             .floor() as c_int;
-        (*a).lon = cpr_dlon_function(rlat0, 0 as c_int, surface)
+        a.lon = cpr_dlon_function(rlat0, 0 as c_int, surface)
             * (cpr_mod_function(m_0, ni_0) as c_double + lon0 / 131072 as c_int as c_double);
-        (*a).lat = rlat0
+        a.lat = rlat0
     }
 
     if surface != 0 {
         // Move from 1st quadrant to our quadrant
-        (*a).lon += (surface_rlon / 90.0f64).floor() * 90.0f64
-    } else if (*a).lon > 180 as c_int as c_double {
-        (*a).lon -= 360 as c_int as c_double
+        a.lon += (surface_rlon / 90.0f64).floor() * 90.0f64
+    } else if a.lon > 180 as c_int as c_double {
+        a.lon -= 360 as c_int as c_double
     }
 
-    (*a).seen_lat_lon = (*a).seen;
-    (*a).timestamp_lat_lon = (*a).timestamp;
-    (*a).b_flags |= MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK;
+    a.seen_lat_lon = a.seen;
+    a.timestamp_lat_lon = a.timestamp;
+    a.b_flags |= MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK;
 
     0
 }
@@ -2429,9 +2424,9 @@ pub(crate) unsafe fn decode_cpr(
 // Note:   text of document describes trunc() functionality for deltaZI calculation
 //         but the formulae use floor().
 //
-pub(crate) unsafe fn decode_cpr_relative(
+pub(crate) fn decode_cpr_relative(
     mode_s: &ModeS,
-    a: *mut Aircraft,
+    a: &mut Aircraft,
     fflag: c_int,
     surface: c_int,
 ) -> c_int {
@@ -2446,10 +2441,10 @@ pub(crate) unsafe fn decode_cpr_relative(
     let j: c_int;
     let m: c_int;
 
-    if (*a).b_flags & MODES_ACFLAGS_LATLON_REL_OK != 0 {
+    if a.b_flags & MODES_ACFLAGS_LATLON_REL_OK != 0 {
         // Ok to try Aircraft relative first
-        latr = (*a).lat;
-        lonr = (*a).lon
+        latr = a.lat;
+        lonr = a.lon
     } else if mode_s.b_user_flags & MODES_USER_LATLON_VALID != 0 {
         // Try ground station relative next
         latr = mode_s.f_user_lat;
@@ -2462,13 +2457,13 @@ pub(crate) unsafe fn decode_cpr_relative(
     if fflag != 0 {
         // odd
         air_dlat = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 59.0f64;
-        lat = (*a).odd_cprlat as c_double;
-        lon = (*a).odd_cprlon as c_double
+        lat = a.odd_cprlat as c_double;
+        lon = a.odd_cprlon as c_double
     } else {
         // even
         air_dlat = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 60.0f64;
-        lat = (*a).even_cprlat as c_double;
-        lon = (*a).even_cprlon as c_double
+        lat = a.even_cprlat as c_double;
+        lon = a.even_cprlon as c_double
     }
 
     // Compute the Latitude Index "j"
@@ -2485,15 +2480,15 @@ pub(crate) unsafe fn decode_cpr_relative(
     if rlat < -(90 as c_int) as c_double || rlat > 90 as c_int as c_double {
         // This will cause a quick exit next time if no global has been done
         // Time to give up - Latitude error
-        (*a).b_flags &= !MODES_ACFLAGS_LATLON_REL_OK;
+        a.b_flags &= !MODES_ACFLAGS_LATLON_REL_OK;
         return -1;
     }
 
     // Check to see that answer is reasonable - ie no more than 1/2 cell away
-    if (rlat - (*a).lat).abs() > air_dlat / 2 as c_int as c_double {
+    if (rlat - a.lat).abs() > air_dlat / 2 as c_int as c_double {
         // This will cause a quick exit next time if no global has been done
         // Time to give up - Latitude error
-        (*a).b_flags &= !MODES_ACFLAGS_LATLON_REL_OK;
+        a.b_flags &= !MODES_ACFLAGS_LATLON_REL_OK;
         return -1;
     }
 
@@ -2509,19 +2504,19 @@ pub(crate) unsafe fn decode_cpr_relative(
     }
 
     // Check to see that answer is reasonable - ie no more than 1/2 cell away
-    if (rlon - (*a).lon).abs() > air_dlon / 2 as c_int as c_double {
+    if (rlon - a.lon).abs() > air_dlon / 2 as c_int as c_double {
         // This will cause a quick exit next time if no global has been done
         // Time to give up - Longitude error
-        (*a).b_flags &= !MODES_ACFLAGS_LATLON_REL_OK;
+        a.b_flags &= !MODES_ACFLAGS_LATLON_REL_OK;
         return -1;
     }
 
-    (*a).lat = rlat;
-    (*a).lon = rlon;
+    a.lat = rlat;
+    a.lon = rlon;
 
-    (*a).seen_lat_lon = (*a).seen;
-    (*a).timestamp_lat_lon = (*a).timestamp;
-    (*a).b_flags |= MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK;
+    a.seen_lat_lon = a.seen;
+    a.timestamp_lat_lon = a.timestamp;
+    a.b_flags |= MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK;
 
     0
 }

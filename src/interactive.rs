@@ -22,7 +22,7 @@ const MODEAC_MSG_MODEC_HIT: c_int = (1 as c_int) << 3 as c_int;
 //
 pub(crate) fn interactive_receive_data(mode_s: &mut ModeS, mm: &mut ModesMessage) {
     // Return if (checking crc) AND (not crcok) AND (not fixed)
-    if mode_s.check_crc != 0 && mm.crcok == 0 as c_int && mm.correctedbits == 0 as c_int {
+    if mode_s.check_crc != 0 && mm.crcok == 0 && mm.correctedbits == 0 {
         return;
     }
 
@@ -134,14 +134,12 @@ pub(crate) fn interactive_receive_data(mode_s: &mut ModeS, mm: &mut ModesMessage
         if (mm.b_flags | a.b_flags) & MODES_ACFLAGS_LLEITHER_VALID == MODES_ACFLAGS_LLBOTH_VALID
             && (a.even_cprtime.wrapping_sub(a.odd_cprtime) as c_int).abs() <= 10000
         {
-            if unsafe {
-                decode_cpr(
-                    &mode_s,
-                    a,
-                    mm.b_flags & MODES_ACFLAGS_LLODD_VALID,
-                    mm.b_flags & MODES_ACFLAGS_AOG,
-                )
-            } == 0
+            if decode_cpr(
+                &mode_s,
+                a,
+                mm.b_flags & MODES_ACFLAGS_LLODD_VALID,
+                mm.b_flags & MODES_ACFLAGS_AOG,
+            ) == 0
             {
                 location_ok = 1
             }
@@ -149,14 +147,12 @@ pub(crate) fn interactive_receive_data(mode_s: &mut ModeS, mm: &mut ModesMessage
 
         // Otherwise try relative CPR.
         if location_ok == 0
-            && unsafe {
-                decode_cpr_relative(
-                    &mode_s,
-                    a,
-                    mm.b_flags & MODES_ACFLAGS_LLODD_VALID,
-                    mm.b_flags & MODES_ACFLAGS_AOG,
-                )
-            } == 0
+            && decode_cpr_relative(
+                &mode_s,
+                a,
+                mm.b_flags & MODES_ACFLAGS_LLODD_VALID,
+                mm.b_flags & MODES_ACFLAGS_AOG,
+            ) == 0
         {
             location_ok = 1
         }
