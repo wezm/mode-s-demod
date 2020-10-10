@@ -2019,29 +2019,7 @@ pub unsafe fn detect_mode_s(
             }
             (*mode_s).net_output_raw_rate_count = 0 as c_int
         }
-    } else if (*mode_s).net != 0 && (*mode_s).net_heartbeat_rate != 0 && {
-        (*mode_s).net_heartbeat_count += 1;
-        ((*mode_s).net_heartbeat_count) > (*mode_s).net_heartbeat_rate
-    } {
-        //
-        // We haven't received any Mode A/C/S messages for some time. To try and keep any TCP
-        // links alive, send a null frame. This will help stop any routers discarding our TCP
-        // link which will cause an un-recoverable link error if/when a real frame arrives.
-        //
-        // Fudge up a null message
-        // memset(&mut mm as *mut ModesMessage as *mut c_void,
-        //        0 as c_int,
-        //        ::std::mem::size_of::<ModesMessage>() as c_ulong);
-        mm = ModesMessage::default();
-        mm.msgbits = 7 as c_int * 8 as c_int;
-        mm.timestamp_msg = (*mode_s).timestamp_blk;
-
-        // Feed output clients
-        // modesQueueOutput(Modes, &mut mm);
-
-        // Reset the heartbeat counter
-        (*mode_s).net_heartbeat_count = 0;
-    };
+    }
 }
 
 // When a new message is available, because it was decoded from the RTL device,
@@ -2067,9 +2045,6 @@ unsafe fn use_modes_message(mode_s: *mut ModeS, mm: *mut ModesMessage) {
         if (*mode_s).net != 0 {
             // modesQueueOutput(Modes, mm);
         }
-
-        // Heartbeat not required whilst we're seeing real messages
-        (*mode_s).net_heartbeat_count = 0;
     };
 }
 
