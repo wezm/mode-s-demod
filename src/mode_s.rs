@@ -2431,16 +2431,16 @@ pub(crate) unsafe fn decodeCPRrelative(
     fflag: c_int,
     surface: c_int,
 ) -> c_int {
-    let mut AirDlat: c_double = 0.;
-    let mut AirDlon: c_double = 0.;
-    let mut lat: c_double = 0.;
-    let mut lon: c_double = 0.;
-    let mut lonr: c_double = 0.;
-    let mut latr: c_double = 0.;
-    let mut rlon: c_double = 0.;
-    let mut rlat: c_double = 0.;
-    let mut j: c_int = 0;
-    let mut m: c_int = 0;
+    let AirDlat: c_double;
+    let AirDlon: c_double;
+    let lat: c_double;
+    let lon: c_double;
+    let lonr: c_double;
+    let latr: c_double;
+    let mut rlon: c_double;
+    let mut rlat: c_double;
+    let j: c_int;
+    let m: c_int;
 
     if (*a).bFlags & MODES_ACFLAGS_LATLON_REL_OK != 0 {
         // Ok to try aircraft relative first

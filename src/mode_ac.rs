@@ -25,7 +25,7 @@ pub const MODEAC_MSG_MODEC_OLD: c_int = 1 << 5;
 // these bits cause bits (31-16) in ModeABits to be set. Then at the end of message
 // processing we can test for errors by looking at these bits.
 //
-pub static mut ModeABitTable: [u32; 24] = [
+pub static mut MODE_ABIT_TABLE: [u32; 24] = [
     0x00000000, // F1 = 1
     0x00000010, // C1
     0x00001000, // A1
@@ -60,7 +60,7 @@ pub static mut ModeABitTable: [u32; 24] = [
 // any inter-bit anomalies, and the bits that are set will show which
 // bits had them.
 //
-pub static mut ModeAMidTable: [u32; 24] = [
+pub static mut MODE_AMID_TABLE: [u32; 24] = [
     0x80000000, // F1 = 1  Set bit 31 if we see F1_C1  error
     0x00000010, // C1      Set bit  4 if we see C1_A1  error
     0x00001000, // A1      Set bit 12 if we see A1_C2  error
@@ -273,16 +273,16 @@ pub(crate) unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
                 // We're calculating a new bit value, and its a one
                 let fresh4 = bit; // or in the correct bit
                 bit = bit - 1;
-                ModeABits = (ModeABits as c_uint | ModeABitTable[fresh4 as usize]) as c_int;
+                ModeABits = (ModeABits as c_uint | MODE_ABIT_TABLE[fresh4 as usize]) as c_int;
 
                 if lastBitWasOne != 0 {
                     // This bit is one, last bit was one, so check the last space is somewhere less than one
                     if lastSpace >= thisSample >> 1 || lastSpace >= lastBit {
-                        ModeAErrs = (ModeAErrs as c_uint | ModeAMidTable[bit as usize]) as c_int
+                        ModeAErrs = (ModeAErrs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
                     }
                 } else if lastSpace >= thisSample >> 1 {
                     // This bit,is one, last bit was zero, so check the last space is somewhere less than one
-                    ModeAErrs = (ModeAErrs as c_uint | ModeAMidTable[bit as usize]) as c_int
+                    ModeAErrs = (ModeAErrs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
                 }
 
                 lastBitWasOne = 1;
@@ -291,11 +291,11 @@ pub(crate) unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
                 if lastBitWasOne != 0 {
                     // This bit is zero, last bit was one, so check the last space is somewhere in between
                     if lastSpace >= lastBit {
-                        ModeAErrs = (ModeAErrs as c_uint | ModeAMidTable[bit as usize]) as c_int
+                        ModeAErrs = (ModeAErrs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
                     }
                 } else if lastSpace >= fLoLo {
                     // This bit,is zero, last bit was zero, so check the last space is zero too
-                    ModeAErrs = (ModeAErrs as c_uint | ModeAMidTable[bit as usize]) as c_int
+                    ModeAErrs = (ModeAErrs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
                 }
 
                 lastBitWasOne = 0;

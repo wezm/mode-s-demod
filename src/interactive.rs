@@ -22,8 +22,8 @@ pub(crate) unsafe fn interactiveReceiveData(
     Modes: &mut modes,
     mm: *mut modesMessage,
 ) -> *mut aircraft {
-    let mut a = 0 as *mut aircraft;
-    let mut aux = 0 as *mut aircraft;
+    let mut a;
+    let mut aux;
 
     // Return if (checking crc) AND (not crcok) AND (not fixed)
     if Modes.check_crc != 0 && (*mm).crcok == 0 as c_int && (*mm).correctedbits == 0 as c_int {
