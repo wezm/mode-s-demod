@@ -115,7 +115,7 @@ pub static mut ModeAMidTable: [u32; 24] = [
 // add the values together..
 //
 #[rustfmt::skip]
-pub unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
+pub(crate) unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
     let mut ModeABits = 0;
     let mut ModeAErrs = 0;
     let mut bit: c_int;
@@ -325,7 +325,7 @@ pub unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
 // Input format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
 //
 #[rustfmt::skip]
-pub fn ModeAToModeC(ModeA: c_uint) -> c_int {
+pub(crate) fn ModeAToModeC(ModeA: c_uint) -> c_int {
     let mut FiveHundreds: c_uint = 0;
     let mut OneHundreds: c_uint = 0;
 
@@ -367,7 +367,7 @@ pub fn ModeAToModeC(ModeA: c_uint) -> c_int {
         .wrapping_sub(13) as c_int;
 }
 
-pub unsafe fn decodeModeAMessage(mm: *mut modesMessage, ModeA: c_int) {
+pub(crate) unsafe fn decodeModeAMessage(mm: *mut modesMessage, ModeA: c_int) {
     (*mm).msgtype = 32; // Valid Mode S DF's are DF-00 to DF-31.
                         // so use 32 to indicate Mode A/C
 

@@ -18,7 +18,7 @@ const MODEAC_MSG_MODEC_HIT: c_int = (1 as c_int) << 3 as c_int;
 
 // Receive new messages and populate the interactive mode with more info
 //
-pub unsafe fn interactiveReceiveData(Modes: &mut modes, mm: *mut modesMessage) -> *mut aircraft {
+pub(crate) unsafe fn interactiveReceiveData(Modes: &mut modes, mm: *mut modesMessage) -> *mut aircraft {
     let mut a = 0 as *mut aircraft;
     let mut aux = 0 as *mut aircraft;
 
@@ -194,7 +194,7 @@ pub unsafe fn interactiveReceiveData(Modes: &mut modes, mm: *mut modesMessage) -
 // Return a new aircraft structure for the interactive mode linked list
 // of aircraft
 //
-pub unsafe fn interactiveCreateAircraft(mut mm: *mut modesMessage) -> *mut aircraft {
+unsafe fn interactiveCreateAircraft(mut mm: *mut modesMessage) -> *mut aircraft {
     let mut a = Box::new(aircraft {
         addr: (*mm).addr,
         flight: [0; 16],
@@ -245,7 +245,7 @@ pub unsafe fn interactiveCreateAircraft(mut mm: *mut modesMessage) -> *mut aircr
 // Return the aircraft with the specified address, or NULL if no aircraft
 // exists with this address.
 //
-pub unsafe fn interactiveFindAircraft(Modes: *const modes, addr: u32) -> *mut aircraft {
+unsafe fn interactiveFindAircraft(Modes: *const modes, addr: u32) -> *mut aircraft {
     let mut a = (*Modes).aircrafts;
     while !a.is_null() {
         if (*a).addr == addr {
