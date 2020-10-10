@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::os::raw::{c_char, c_double, c_int, c_long, c_uchar, c_uint};
 use std::time::SystemTime;
-use std::{mem, ptr, time};
+use std::{fmt, mem, ptr, time};
 
 mod interactive;
 mod mode_ac;
@@ -42,8 +42,6 @@ pub const MODES_RAWOUT_BUF_RATE: c_int = 1000; // 1000 * 64mS = 1 Min approx
 
 pub const MODES_ICAO_CACHE_LEN: u32 = 1024; // Value must be a power of two
 const MODES_ICAO_CACHE_TTL: u64 = 60; // Time to live of cached addresses
-const MODES_UNIT_FEET: c_int = 0;
-const MODES_UNIT_METERS: c_int = 1;
 
 const MODES_ACFLAGS_LATLON_VALID: c_int = 1 << 0; // Aircraft Lat/Lon is decoded
 const MODES_ACFLAGS_ALTITUDE_VALID: c_int = 1 << 1; // Aircraft altitude is known
@@ -77,6 +75,12 @@ pub const NERRORINFO: usize =
     (MODES_LONG_MSG_BITS + MODES_LONG_MSG_BITS * (MODES_LONG_MSG_BITS - 1) / 2) as usize;
 
 type time_t = c_long;
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum Altitude {
+    Feet,
+    Metres,
+}
 
 #[derive(Clone)]
 #[repr(C)]
@@ -228,9 +232,24 @@ struct ModesMessage {
     mode_a: c_int, // 13 bits identity (Squawk).
 
     // Fields used by multiple message types.
-    altitude: c_int,
-    unit: c_int,
+    altitude: c_int, // TODO: Combine altitude and unit
+    unit: Altitude,
     b_flags: c_int, // Flags related to fields in this structure
+}
+
+impl Default for Altitude {
+    fn default() -> Self {
+        Altitude::Feet
+    }
+}
+
+impl fmt::Display for Altitude {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Altitude::Feet => f.write_str("feet"),
+            Altitude::Metres => f.write_str("metres"),
+        }
+    }
 }
 
 impl Default for ModeS {

@@ -9,16 +9,16 @@ use std::{io, ptr};
 use crate::interactive::interactive_receive_data;
 use crate::mode_ac::{decode_mode_a_message, detect_mode_a, mode_a_to_mode_c, MODEAC_MSG_SAMPLES};
 use crate::{
-    Aircraft, ModeS, ModesMessage, MODES_ACFLAGS_ALTITUDE_VALID, MODES_ACFLAGS_EWSPEED_VALID,
-    MODES_ACFLAGS_HEADING_VALID, MODES_ACFLAGS_LATLON_REL_OK, MODES_ACFLAGS_LATLON_VALID,
-    MODES_ACFLAGS_NSSPEED_VALID, MODES_ACFLAGS_SPEED_VALID, MODES_ACFLAGS_VERTRATE_VALID,
-    MODES_ASYNC_BUF_SAMPLES, MODES_DEBUG_BADCRC, MODES_DEBUG_DEMOD, MODES_DEBUG_DEMODERR,
-    MODES_DEBUG_GOODCRC, MODES_DEBUG_NOPREAMBLE, MODES_DEBUG_NOPREAMBLE_LEVEL,
-    MODES_ICAO_CACHE_LEN, MODES_ICAO_CACHE_TTL, MODES_LONG_MSG_BITS, MODES_LONG_MSG_BYTES,
-    MODES_LONG_MSG_SAMPLES, MODES_LONG_MSG_SIZE, MODES_MAX_BITERRORS, MODES_MSG_ENCODER_ERRS,
-    MODES_MSG_SQUELCH_LEVEL, MODES_PREAMBLE_SAMPLES, MODES_PREAMBLE_SIZE, MODES_PREAMBLE_US,
-    MODES_SHORT_MSG_BITS, MODES_UNIT_FEET, MODES_UNIT_METERS, MODES_USER_LATITUDE_DFLT,
-    MODES_USER_LATLON_VALID, MODES_USER_LONGITUDE_DFLT,
+    Aircraft, Altitude, ModeS, ModesMessage, MODES_ACFLAGS_ALTITUDE_VALID,
+    MODES_ACFLAGS_EWSPEED_VALID, MODES_ACFLAGS_HEADING_VALID, MODES_ACFLAGS_LATLON_REL_OK,
+    MODES_ACFLAGS_LATLON_VALID, MODES_ACFLAGS_NSSPEED_VALID, MODES_ACFLAGS_SPEED_VALID,
+    MODES_ACFLAGS_VERTRATE_VALID, MODES_ASYNC_BUF_SAMPLES, MODES_DEBUG_BADCRC, MODES_DEBUG_DEMOD,
+    MODES_DEBUG_DEMODERR, MODES_DEBUG_GOODCRC, MODES_DEBUG_NOPREAMBLE,
+    MODES_DEBUG_NOPREAMBLE_LEVEL, MODES_ICAO_CACHE_LEN, MODES_ICAO_CACHE_TTL, MODES_LONG_MSG_BITS,
+    MODES_LONG_MSG_BYTES, MODES_LONG_MSG_SAMPLES, MODES_LONG_MSG_SIZE, MODES_MAX_BITERRORS,
+    MODES_MSG_ENCODER_ERRS, MODES_MSG_SQUELCH_LEVEL, MODES_PREAMBLE_SAMPLES, MODES_PREAMBLE_SIZE,
+    MODES_PREAMBLE_US, MODES_SHORT_MSG_BITS, MODES_USER_LATITUDE_DFLT, MODES_USER_LATLON_VALID,
+    MODES_USER_LONGITUDE_DFLT,
 };
 
 // Parity table for MODE S Messages.
@@ -260,11 +260,11 @@ fn decode_id13_field(id13_field: c_int) -> c_int {
 // Decode the 13 bit AC altitude field (in DF 20 and others).
 // Returns the altitude, and set 'unit' to either MODES_UNIT_METERS or MDOES_UNIT_FEETS.
 //
-unsafe fn decode_ac13_field(ac13_field: c_int, unit: *mut c_int) -> c_int {
+unsafe fn decode_ac13_field(ac13_field: c_int, unit: &mut Altitude) -> c_int {
     let m_bit = (ac13_field & 0x40) != 0; // set = meters, clear = feet
     let q_bit = (ac13_field & 0x10) != 0; // set = 25 ft encoding, clear = Gillham Mode C encoding
     if !m_bit {
-        *unit = MODES_UNIT_FEET;
+        *unit = Altitude::Feet;
         if q_bit {
             // N is the 11 bit integer resulting from the removal of bit Q and M
             let n: c_int = (ac13_field & 0x1f80) >> 2 | (ac13_field & 0x20) >> 1 | ac13_field & 0xf;
@@ -279,17 +279,17 @@ unsafe fn decode_ac13_field(ac13_field: c_int, unit: *mut c_int) -> c_int {
             100 * n_0
         }
     } else {
-        *unit = MODES_UNIT_METERS;
         // TODO(inherited): Implement altitude when meter unit is selected
+        *unit = Altitude::Metres;
         0
     }
 }
 
 // Decode the 12 bit AC altitude field (in DF 17 and others).
 //
-unsafe fn decode_ac12_field(ac12_field: c_int, unit: *mut c_int) -> c_int {
+unsafe fn decode_ac12_field(ac12_field: c_int, unit: &mut Altitude) -> c_int {
     let q_bit = (ac12_field & 0x10) != 0; // Bit 48 = Q
-    *unit = MODES_UNIT_FEET;
+    *unit = Altitude::Feet;
     if q_bit {
         // / N is the 11 bit integer resulting from the removal of bit Q at bit 4
         let n: c_int = (ac12_field & 0xfe0) >> 1 | ac12_field & 0xf;
@@ -779,15 +779,7 @@ fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
             "  SL             : {}",
             (mm.msg[1] as c_int & 0xe0 as c_int) >> 5 as c_int
         );
-        println!(
-            "  Altitude       : {} {}",
-            mm.altitude,
-            if mm.unit == MODES_UNIT_METERS {
-                "meters"
-            } else {
-                "feet"
-            }
-        );
+        println!("  Altitude       : {} {}", mm.altitude, mm.unit);
         println!("  ICAO Address   : {:06x}", mm.addr);
     } else if mm.msgtype == 4 as c_int || mm.msgtype == 20 as c_int {
         println!(
@@ -808,15 +800,7 @@ fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
             "  UM             : {}",
             (mm.msg[1] as c_int & 7 as c_int) << 3 as c_int | mm.msg[2] as c_int >> 5 as c_int
         );
-        println!(
-            "  Altitude       : {} {}",
-            mm.altitude,
-            if mm.unit == MODES_UNIT_METERS {
-                "meters"
-            } else {
-                "feet"
-            }
-        );
+        println!("  Altitude       : {} {}", mm.altitude, mm.unit);
         println!("  ICAO Address   : {:06x}", mm.addr);
         if mm.msgtype == 20 as c_int {
             println!("  Comm-B BDS     : {:x}", mm.msg[4] as c_int);
@@ -925,15 +909,7 @@ fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
             "  SL             : {}",
             (mm.msg[1] as c_int & 0xe0 as c_int) >> 5 as c_int
         );
-        println!(
-            "  Altitude       : {} {}",
-            mm.altitude,
-            if mm.unit == MODES_UNIT_METERS {
-                "meters"
-            } else {
-                "feet"
-            }
-        );
+        println!("  Altitude       : {} {}", mm.altitude, mm.unit);
         println!("  ICAO Address   : {:06x}", mm.addr);
     } else if mm.msgtype == 17 as c_int {
         // DF 17
