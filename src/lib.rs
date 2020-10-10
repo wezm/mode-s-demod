@@ -1,8 +1,9 @@
 #![allow(non_snake_case, non_camel_case_types)]
 
+use std::cmp::Ordering;
+use std::convert::TryFrom;
 use std::os::raw::{
-    c_char, c_double, c_int, c_long, c_longlong, c_short, c_uchar, c_uint, c_ulong, c_ulonglong,
-    c_ushort, c_void,
+    c_char, c_double, c_int, c_long, c_uchar, c_uint,
 };
 use std::time::SystemTime;
 use std::{mem, ptr, time};
@@ -11,52 +12,18 @@ mod interactive;
 mod mode_ac;
 mod mode_s;
 
-use std::cmp::Ordering;
-
 use mode_s::modesChecksum;
-
 pub use mode_s::{computeMagnitudeVectorImpl, detectModeSImpl, errorinfo};
-use std::convert::TryInto;
 
-const ANET_ERR_LEN: usize = 256;
-
-const MODES_NET_SERVICES_NUM: c_int = 6;
-const MODES_NET_INPUT_RAW_PORT: c_int = 30001;
-const MODES_NET_OUTPUT_RAW_PORT: c_int = 30002;
-const MODES_NET_OUTPUT_SBS_PORT: c_int = 30003;
-const MODES_NET_INPUT_BEAST_PORT: c_int = 30004;
-const MODES_NET_OUTPUT_BEAST_PORT: c_int = 30005;
-const MODES_NET_HTTP_PORT: c_int = 8080;
-const MODES_CLIENT_BUF_SIZE: c_int = 1024;
-const MODES_NET_SNDBUF_SIZE: c_int = (1024 * 64);
-pub const MODES_NET_SNDBUF_MAX: c_int = (7);
+pub const MODES_NET_SNDBUF_MAX: c_int = 7;
 
 const MODES_USER_LONGITUDE_DFLT: c_double = 0.0f64;
 const MODES_USER_LATITUDE_DFLT: c_double = 0.0f64;
 const MODES_INTERACTIVE_DISPLAY_TTL: c_int = 60 as c_int;
-const MODES_INTERACTIVE_DELETE_TTL: c_int = 300 as c_int;
 const MODES_NET_HEARTBEAT_RATE: c_int = 900 as c_int;
-const MODES_DEFAULT_PPM: c_int = 52 as c_int;
-const MODES_DEFAULT_FREQ: c_int = 1090000000 as c_int;
-const MODES_MAX_GAIN: c_int = 999999 as c_int;
 pub const MODES_USER_LATLON_VALID: c_int = (1 as c_int) << 0 as c_int;
-// const MODES_PREAMBLE_US: c_int = 8 as c_int;
-// const MODES_PREAMBLE_SAMPLES: c_int =
-//     MODES_PREAMBLE_US * 2 as c_int;
-// const MODES_ASYNC_BUF_SIZE: c_int =
-//     16 as c_int * 16384 as c_int;
-// const MODES_ICAO_CACHE_LEN: c_int = 1024 as c_int;
-
-// const MODES_DEFAULT_PPM: c_int = 52;
-// const MODES_DEFAULT_RATE: c_int = 2000000;
-// const MODES_DEFAULT_FREQ: c_int = 1090000000;
-// const MODES_DEFAULT_WIDTH: c_int = 1000;
-// const MODES_DEFAULT_HEIGHT: c_int = 700;
-pub(crate) const MODES_ASYNC_BUF_NUMBER: usize = 16;
 pub const MODES_ASYNC_BUF_SIZE: usize = 16 * 16384; // 256k
 pub const MODES_ASYNC_BUF_SAMPLES: usize = MODES_ASYNC_BUF_SIZE / 2; // Each sample is 2 bytes
-                                                                     // const MODES_AUTO_GAIN: c_int = -100; // Use automatic gain
-                                                                     // const MODES_MAX_GAIN: c_int = 999999; // Use max available gain
 const MODES_MSG_SQUELCH_LEVEL: c_int = 0x02FF; // Average signal strength limit
 const MODES_MSG_ENCODER_ERRS: c_int = 3; // Maximum number of encoding errors
 
@@ -71,9 +38,7 @@ const MODES_SHORT_MSG_BYTES: usize = 7;
 const MODES_LONG_MSG_BITS: c_int = MODES_LONG_MSG_BYTES as c_int * 8;
 const MODES_SHORT_MSG_BITS: c_int = MODES_SHORT_MSG_BYTES as c_int * 8;
 pub const MODES_LONG_MSG_SAMPLES: usize = MODES_LONG_MSG_BITS as usize * 2;
-// const MODES_SHORT_MSG_SAMPLES: usize = MODES_SHORT_MSG_BITS as usize * 2;
 const MODES_LONG_MSG_SIZE: usize = MODES_LONG_MSG_SAMPLES * mem::size_of::<u16>();
-// const MODES_SHORT_MSG_SIZE: usize = MODES_SHORT_MSG_SAMPLES * mem::size_of::<u16>();
 
 pub const MODES_RAWOUT_BUF_SIZE: usize = 1500;
 pub const MODES_RAWOUT_BUF_FLUSH: usize = MODES_RAWOUT_BUF_SIZE - 200;
@@ -97,21 +62,16 @@ const MODES_ACFLAGS_AOG: c_int = 1 << 9; // Aircraft is On the Ground
 const MODES_ACFLAGS_LLEVEN_VALID: c_int = 1 << 10; // Aircraft Even Lot/Lon is known
 const MODES_ACFLAGS_LLODD_VALID: c_int = 1 << 11; // Aircraft Odd Lot/Lon is known
 const MODES_ACFLAGS_AOG_VALID: c_int = 1 << 12; // MODES_ACFLAGS_AOG is valid
-                                                // const MODES_ACFLAGS_FS_VALID: c_int = 1 << 13; // Aircraft Flight Status is known
-                                                // const MODES_ACFLAGS_NSEWSPD_VALID: c_int = 1 << 14; // Aircraft EW and NS Speed is known
 const MODES_ACFLAGS_LATLON_REL_OK: c_int = 1 << 15; // Indicates it's OK to do a relative CPR
 
 const MODES_ACFLAGS_LLEITHER_VALID: c_int = MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID;
 const MODES_ACFLAGS_LLBOTH_VALID: c_int = MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID;
-// const MODES_ACFLAGS_AOG_GROUND: c_int = MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
 
 const MODES_DEBUG_DEMOD: c_int = 1 << 0;
 const MODES_DEBUG_DEMODERR: c_int = 1 << 1;
 const MODES_DEBUG_BADCRC: c_int = 1 << 2;
 const MODES_DEBUG_GOODCRC: c_int = 1 << 3;
 const MODES_DEBUG_NOPREAMBLE: c_int = 1 << 4;
-// const MODES_DEBUG_NET: c_int = 1<<5;
-// const MODES_DEBUG_JS: c_int = 1<<6;
 
 // When debug is set to MODES_DEBUG_NOPREAMBLE, the first sample must be
 // at least greater than a given level for us to dump the signal.
@@ -120,107 +80,7 @@ const MODES_DEBUG_NOPREAMBLE_LEVEL: c_int = 25;
 pub const NERRORINFO: usize =
     (MODES_LONG_MSG_BITS + MODES_LONG_MSG_BITS * (MODES_LONG_MSG_BITS - 1) / 2) as usize;
 
-pub type time_t = c_long;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct __pthread_internal_list {
-    pub __prev: *mut __pthread_internal_list,
-    pub __next: *mut __pthread_internal_list,
-}
-
-pub type __pthread_list_t = __pthread_internal_list;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct __pthread_mutex_s {
-    pub __lock: c_int,
-    pub __count: c_uint,
-    pub __owner: c_int,
-    pub __nusers: c_uint,
-    pub __kind: c_int,
-    pub __spins: c_short,
-    pub __elision: c_short,
-    pub __list: __pthread_list_t,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct __pthread_cond_s {
-    pub c2rust_unnamed: C2RustUnnamed_1,
-    pub c2rust_unnamed_0: C2RustUnnamed,
-    pub __g_refs: [c_uint; 2],
-    pub __g_size: [c_uint; 2],
-    pub __g1_orig_size: c_uint,
-    pub __wrefs: c_uint,
-    pub __g_signals: [c_uint; 2],
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub union C2RustUnnamed {
-    pub __g1_start: c_ulonglong,
-    pub __g1_start32: C2RustUnnamed_0,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct C2RustUnnamed_0 {
-    pub __low: c_uint,
-    pub __high: c_uint,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub union C2RustUnnamed_1 {
-    pub __wseq: c_ulonglong,
-    pub __wseq32: C2RustUnnamed_2,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct C2RustUnnamed_2 {
-    pub __low: c_uint,
-    pub __high: c_uint,
-}
-pub type pthread_t = c_ulong;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub union pthread_mutex_t {
-    pub __data: __pthread_mutex_s,
-    pub __size: [c_char; 40],
-    pub __align: c_long,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub union pthread_cond_t {
-    pub __data: __pthread_cond_s,
-    pub __size: [c_char; 48],
-    pub __align: c_longlong,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct timeb {
-    pub time: time_t,
-    pub millitm: c_ushort,
-    pub timezone: c_short,
-    pub dstflag: c_short,
-}
-
-type rtlsdr_dev_t = *mut c_void;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct client {
-    pub next: *mut client,
-    pub fd: c_int,
-    pub service: c_int,
-    pub buflen: c_int,
-    pub buf: [c_char; MODES_CLIENT_BUF_SIZE as usize + 1],
-}
+type time_t = c_long;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -272,134 +132,78 @@ pub struct stDF {
 #[derive(Clone)]
 #[repr(C)]
 pub struct modes {
-    pub reader_thread: pthread_t,
-
-    // pub data_mutex: pthread_mutex_t, // Mutex to synchronize buffer access
-    // pub data_cond: pthread_cond_t,   // Conditional variable associated
-    // pub pData: [*mut u16; MODES_ASYNC_BUF_NUMBER], // Raw IQ sample buffers from RTL
-    // pub stSystemTimeRTL: [timeb; MODES_ASYNC_BUF_NUMBER], // System time when RTL passed us this block
-    pub iDataIn: c_int,    // Fifo input pointer
-    pub iDataOut: c_int,   // Fifo output pointer
-    pub iDataReady: c_int, // Fifo content count
-    pub iDataLost: c_int,  // Count of missed buffers
-
-    // pub pFileData: *mut u16,    // Raw IQ samples buffer (from a File)
     pub magnitude: *mut u16, // Magnitude vector
-    pub timestampBlk: u64,   // Timestamp of the start of the current block
-    // pub stSystemTimeBlk: timeb, // System time when RTL passed us currently processing this block
-    pub fd: c_int,            // --ifile option file descriptor
-    pub icao_cache: *mut u32, // Recently seen ICAO addresses cache
-    pub maglut: *mut u16,     // I/Q -> Magnitude lookup table
-    pub exit: c_int,          // Exit from the main loop when true
-
-    // RTLSDR
-    pub dev_index: c_int,
-    pub gain: c_int,
-    pub enable_agc: c_int,
-    // pub dev: *mut rtlsdr_dev_t,
-    pub freq: c_int,
-    pub ppm_error: c_int,
+    timestampBlk: u64,   // Timestamp of the start of the current block
+    icao_cache: *mut u32, // Recently seen ICAO addresses cache
+    maglut: *mut u16,     // I/Q -> Magnitude lookup table
 
     // Networking
-    // pub aneterr: [c_char; ANET_ERR_LEN],
-    // pub clients: *mut client,  // Our clients
-    pub sbsos: c_int,          // SBS output listening socket
-    pub ros: c_int,            // Raw output listening socket
-    pub ris: c_int,            // Raw input listening socket
-    pub bos: c_int,            // Beast output listening socket
-    pub bis: c_int,            // Beast input listening socket
-    pub https: c_int,          // HTTP listening socket
-    pub rawOut: *mut c_char,   // Buffer for building raw output data
-    pub rawOutUsed: c_int,     // How much of the buffer is currently used
-    pub beastOut: *mut c_char, // Buffer for building beast output data
-    pub beastOutUsed: c_int,   // How much if the buffer is currently used
+    rawOut: *mut c_char,   // Buffer for building raw output data
+    rawOutUsed: c_int,     // How much of the buffer is currently used
+    beastOut: *mut c_char, // Buffer for building beast output data
+    beastOutUsed: c_int,   // How much if the buffer is currently used
 
     // Configuration
-    // pub filename: *mut c_char,            // Input form file, --ifile option
-    pub phase_enhance: c_int,             // Enable phase enhancement if true
-    pub nfix_crc: c_int,                  // Number of crc bit error(s) to correct
-    pub check_crc: c_int,                 // Only display messages with good CRC
-    pub raw: c_int,                       // Raw output format
-    pub beast: c_int,                     // Beast binary format output
-    pub mode_ac: c_int,                   // Enable decoding of SSR Modes A & C
-    pub debug: c_int,                     // Debugging mode
-    pub net: c_int,                       // Enable networking
-    pub net_only: c_int,                  // Enable just networking
-    pub net_heartbeat_count: c_int,       // TCP heartbeat counter
-    pub net_heartbeat_rate: c_int,        // TCP heartbeat rate
-    pub net_output_sbs_port: c_int,       // SBS output TCP port
-    pub net_output_raw_size: c_int,       // Minimum Size of the output raw data
-    pub net_output_raw_rate: c_int,       // Rate (in 64mS increments) of output raw data
-    pub net_output_raw_rate_count: c_int, // Rate (in 64mS increments) of output raw data
-    pub net_output_raw_port: c_int,       // Raw output TCP port
-    pub net_input_raw_port: c_int,        // Raw input TCP port
-    pub net_output_beast_port: c_int,     // Beast output TCP port
-    pub net_input_beast_port: c_int,      // Beast input TCP port
-    // pub net_bind_address: *mut c_char,    // Bind address
-    pub net_http_port: c_int,           // HTTP port
-    pub net_sndbuf_size: c_int,         // TCP output buffer size (64Kb * 2^n)
-    pub quiet: c_int,                   // Suppress stdout
-    pub interactive: c_int,             // Interactive mode
-    pub interactive_rows: c_int,        // Interactive mode: max number of rows
-    pub interactive_display_ttl: c_int, // Interactive mode: TTL display
-    pub interactive_delete_ttl: c_int,  // Interactive mode: TTL before deletion
-    pub stats: c_int,                   // Print stats at exit in --ifile mode
-    pub onlyaddr: c_int,                // Print only ICAO addresses
-    pub metric: c_int,                  // Use metric units
-    pub mlat: c_int, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
-    pub interactive_rtl1090: c_int, // flight table in interactive mode is formatted like RTL1090
+    phase_enhance: c_int,             // Enable phase enhancement if true
+    nfix_crc: c_int,                  // Number of crc bit error(s) to correct
+    check_crc: c_int,                 // Only display messages with good CRC
+    raw: c_int,                       // Raw output format
+    mode_ac: c_int,                   // Enable decoding of SSR Modes A & C
+    debug: c_int,                     // Debugging mode
+    net: c_int,                       // Enable networking
+    net_heartbeat_count: c_int,       // TCP heartbeat counter
+    net_heartbeat_rate: c_int,        // TCP heartbeat rate
+    net_output_raw_size: c_int,       // Minimum Size of the output raw data
+    net_output_raw_rate: c_int,       // Rate (in 64mS increments) of output raw data
+    net_output_raw_rate_count: c_int, // Rate (in 64mS increments) of output raw data
+    net_sndbuf_size: c_int,         // TCP output buffer size (64Kb * 2^n)
+    quiet: c_int,                   // Suppress stdout
+    interactive: c_int,             // Interactive mode
+    interactive_display_ttl: c_int, // Interactive mode: TTL display
+    stats: c_int,                   // Print stats at exit in --ifile mode
+    onlyaddr: c_int,                // Print only ICAO addresses
+    mlat: c_int, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
 
     // User details
-    pub fUserLat: c_double, // Users receiver/antenna lat/lon needed for initial surface location
-    pub fUserLon: c_double, // Users receiver/antenna lat/lon needed for initial surface location
-    pub bUserFlags: c_int,  // Flags relating to the user details
+    fUserLat: c_double, // Users receiver/antenna lat/lon needed for initial surface location
+    fUserLon: c_double, // Users receiver/antenna lat/lon needed for initial surface location
+    bUserFlags: c_int,  // Flags relating to the user details
 
     // Interactive mode
-    pub aircrafts: *mut aircraft,
-    pub interactive_last_update: u64, // Last screen update in milliseconds
-    pub last_cleanup_time: time_t,    // Last cleanup time in seconds
+    aircrafts: *mut aircraft,
 
     // DF List mode
-    pub bEnableDFLogging: c_int, // Set to enable DF Logging
-    // pub pDF_mutex: pthread_mutex_t, // Mutex to synchronize pDF access
-    // pub pDF: *mut stDF,             // Pointer to DF list
+    bEnableDFLogging: c_int, // Set to enable DF Logging
 
     // DF List mode
-    pub stat_valid_preamble: c_uint,
-    pub stat_demodulated0: c_uint,
-    pub stat_demodulated1: c_uint,
-    pub stat_demodulated2: c_uint,
-    pub stat_demodulated3: c_uint,
-    pub stat_goodcrc: c_uint,
-    pub stat_badcrc: c_uint,
-    pub stat_fixed: c_uint,
+    stat_valid_preamble: c_uint,
+    stat_demodulated0: c_uint,
+    stat_demodulated1: c_uint,
+    stat_demodulated2: c_uint,
+    stat_demodulated3: c_uint,
+    stat_goodcrc: c_uint,
+    stat_badcrc: c_uint,
+    stat_fixed: c_uint,
 
     // Histogram of fixed bit errors: index 0 for single bit errors,
     // index 1 for double bit errors etc.
-    pub stat_bit_fix: [c_uint; MODES_MAX_BITERRORS],
+    stat_bit_fix: [c_uint; MODES_MAX_BITERRORS],
 
-    pub stat_http_requests: c_uint,
-    pub stat_sbs_connections: c_uint,
-    pub stat_raw_connections: c_uint,
-    pub stat_beast_connections: c_uint,
-    pub stat_out_of_phase: c_uint,
-    pub stat_ph_demodulated0: c_uint,
-    pub stat_ph_demodulated1: c_uint,
-    pub stat_ph_demodulated2: c_uint,
-    pub stat_ph_demodulated3: c_uint,
-    pub stat_ph_goodcrc: c_uint,
-    pub stat_ph_badcrc: c_uint,
-    pub stat_ph_fixed: c_uint,
+    stat_out_of_phase: c_uint,
+    stat_ph_demodulated0: c_uint,
+    stat_ph_demodulated1: c_uint,
+    stat_ph_demodulated2: c_uint,
+    stat_ph_demodulated3: c_uint,
+    stat_ph_goodcrc: c_uint,
+    stat_ph_badcrc: c_uint,
+    stat_ph_fixed: c_uint,
     // Histogram of fixed bit errors: index 0 for single bit errors,
     // index 1 for double bit errors etc.
-    pub stat_ph_bit_fix: [c_uint; MODES_MAX_BITERRORS],
+    stat_ph_bit_fix: [c_uint; MODES_MAX_BITERRORS],
 
-    pub stat_DF_Len_Corrected: c_uint,
-    pub stat_DF_Type_Corrected: c_uint,
-    pub stat_ModeAC: c_uint,
-
-    pub stat_blocks_processed: c_uint,
-    pub stat_blocks_dropped: c_uint,
+    stat_DF_Len_Corrected: c_uint,
+    stat_DF_Type_Corrected: c_uint,
+    stat_ModeAC: c_uint,
 }
 
 #[derive(Copy, Clone, Default)]
@@ -449,45 +253,21 @@ pub struct modesMessage {
 impl Default for modes {
     fn default() -> Self {
         modes {
-            reader_thread: 0,
-            iDataIn: 0,
-            iDataOut: 0,
-            iDataReady: 0,
-            gain: MODES_MAX_GAIN,
-            enable_agc: 0,
-            freq: MODES_DEFAULT_FREQ,
-            ppm_error: MODES_DEFAULT_PPM,
-            sbsos: 0,
-            ros: 0,
-            ris: 0,
-            bos: 0,
-            bis: 0,
             check_crc: 1,
             raw: 0,
-            beast: 0,
             mode_ac: 0,
             debug: 0,
             net: 0,
-            net_only: 0,
             net_heartbeat_count: 0,
             net_heartbeat_rate: MODES_NET_HEARTBEAT_RATE,
-            net_output_sbs_port: MODES_NET_OUTPUT_SBS_PORT,
             net_output_raw_size: 0,
             net_output_raw_rate: 0,
             net_output_raw_rate_count: 0,
-            net_output_raw_port: MODES_NET_OUTPUT_RAW_PORT,
-            net_input_raw_port: MODES_NET_INPUT_RAW_PORT,
-            net_output_beast_port: MODES_NET_OUTPUT_BEAST_PORT,
-            net_input_beast_port: MODES_NET_INPUT_BEAST_PORT,
-            net_http_port: MODES_NET_HTTP_PORT,
             net_sndbuf_size: 0,
             quiet: 0,
             interactive: 0,
-            interactive_rows: 80, // getTermRows(),
-            interactive_delete_ttl: MODES_INTERACTIVE_DELETE_TTL,
             stats: 0,
             onlyaddr: 0,
-            metric: 0,
             mlat: 0,
             interactive_display_ttl: MODES_INTERACTIVE_DISPLAY_TTL,
             fUserLat: MODES_USER_LATITUDE_DFLT,
@@ -495,8 +275,6 @@ impl Default for modes {
 
             bUserFlags: 0,
             aircrafts: ptr::null_mut(),
-            interactive_last_update: 0,
-            last_cleanup_time: 0,
             bEnableDFLogging: 0,
             stat_valid_preamble: 0,
             stat_demodulated0: 0,
@@ -507,10 +285,6 @@ impl Default for modes {
             stat_badcrc: 0,
             stat_fixed: 0,
             stat_bit_fix: [0; MODES_MAX_BITERRORS],
-            stat_http_requests: 0,
-            stat_sbs_connections: 0,
-            stat_raw_connections: 0,
-            stat_beast_connections: 0,
             stat_out_of_phase: 0,
             stat_ph_demodulated0: 0,
             stat_ph_demodulated1: 0,
@@ -523,26 +297,18 @@ impl Default for modes {
             stat_DF_Len_Corrected: 0,
             stat_DF_Type_Corrected: 0,
             stat_ModeAC: 0,
-            stat_blocks_processed: 0,
             icao_cache: ptr::null_mut(),
             magnitude: ptr::null_mut(),
             timestampBlk: 0,
             maglut: ptr::null_mut(),
 
-            exit: 0,
             rawOut: ptr::null_mut(),
             rawOutUsed: 0,
             beastOut: ptr::null_mut(),
             beastOutUsed: 0,
 
             phase_enhance: 0,
-            iDataLost: 0,
-            fd: 0,
-            dev_index: 0,
-            https: 0,
             nfix_crc: 0,
-            interactive_rtl1090: 0,
-            stat_blocks_dropped: 0,
         }
     }
 }
@@ -551,6 +317,7 @@ fn cmp_errorinfo(e0: &errorinfo, e1: &errorinfo) -> Ordering {
     e0.syndrome.cmp(&e1.syndrome)
 }
 
+// TODO: Can this be made a const fn?
 // Compute the table of all syndromes for 1-bit and 2-bit error vectors
 pub unsafe fn modesInitErrorInfoImpl(bitErrorTable: &mut [errorinfo], nfix_crc: c_int) {
     let mut msg: [c_uchar; 14] = [0; MODES_LONG_MSG_BYTES as usize];
@@ -604,6 +371,247 @@ fn now() -> u64 {
         .duration_since(time::UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .expect("now doesn't fit in u64")
+}
+
+pub fn modes_init() -> (modes, [errorinfo; NERRORINFO]) {
+    let mut state = modes {
+        // filename: "", // --ifile
+        nfix_crc: MODES_MAX_BITERRORS as c_int, // --aggressive
+        phase_enhance: 1,                       // --phase-enhance
+        ..Default::default()
+    };
+    // struct errorinfo bitErrorTable[NERRORINFO];
+    let mut bit_error_table = [errorinfo::default(); NERRORINFO];
+
+    // pthread_mutex_init(&mut Modes.pDF_mutex,
+    //                    NULL_0 as *const pthread_mutexattr_t);
+    // pthread_mutex_init(&mut Modes.data_mutex,
+    //                    NULL_0 as *const pthread_mutexattr_t);
+    // pthread_cond_init(&mut Modes.data_cond,
+    //                   NULL_0 as *const pthread_condattr_t);
+
+    // Allocate the various buffers used by Modes
+    let mut icao_cache = Box::new([0u32; MODES_ICAO_CACHE_LEN as usize * 2]);
+    state.icao_cache = icao_cache.as_mut_ptr();
+    Box::into_raw(icao_cache);
+
+    // Modes.icao_cache =
+    //     malloc((::std::mem::size_of::<u32>() as
+    //         c_ulong).wrapping_mul(MODES_ICAO_CACHE_LEN as
+    //         c_ulong).wrapping_mul(2
+    //         as
+    //         c_int
+    //         as
+    //         c_ulong))
+    //         as *mut u32;
+    // if Modes.icao_cache.is_null() ||
+    //     {
+    //         Modes.pFileData =
+    //             malloc(MODES_ASYNC_BUF_SIZE as c_ulong) as
+    //                 *mut u16;
+    //         Modes.pFileData.is_null()
+    //     } ||
+    //     {
+    //         Modes.magnitude =
+    //             malloc((MODES_ASYNC_BUF_SIZE as
+    //                 c_ulong).wrapping_add((MODES_PREAMBLE_SAMPLES
+    //                 as
+    //                 c_ulong).wrapping_mul(::std::mem::size_of::<u16>()
+    //                 as
+    //                 c_ulong)).wrapping_add((MODES_LONG_MSG_SAMPLES
+    //                 as
+    //                 c_ulong).wrapping_mul(::std::mem::size_of::<u16>()
+    //                 as
+    //                 c_ulong)))
+    //                 as *mut u16;
+    //         Modes.magnitude.is_null()
+    let mut magnitude =
+        Box::new([0u16; MODES_ASYNC_BUF_SAMPLES + MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES]);
+    state.magnitude = magnitude.as_mut_ptr();
+    Box::into_raw(magnitude);
+    //     } ||
+    //     {
+    //         Modes.maglut =
+    //             malloc((::std::mem::size_of::<u16>() as
+    //                 c_ulong).wrapping_mul(256 as c_int
+    //                 as
+    //                 c_ulong).wrapping_mul(256
+    //                 as
+    //                 c_int
+    //                 as
+    //                 c_ulong))
+    //                 as *mut u16;
+    //         Modes.maglut.is_null()
+    //     } ||
+    //     {
+    //         Modes.beastOut =
+    //             malloc(MODES_RAWOUT_BUF_SIZE as c_ulong) as
+    //                 *mut c_char;
+    //         Modes.beastOut.is_null()
+    let mut beast_out = Box::new([0 as c_char; MODES_RAWOUT_BUF_SIZE]);
+    state.beastOut = beast_out.as_mut_ptr();
+    Box::into_raw(beast_out);
+    //     } ||
+    //     {
+    //         Modes.rawOut =
+    //             malloc(MODES_RAWOUT_BUF_SIZE as c_ulong) as
+    //                 *mut c_char;
+    //         Modes.rawOut.is_null()
+    let mut raw_out = Box::new([0 as c_char; MODES_RAWOUT_BUF_SIZE]);
+    state.rawOut = raw_out.as_mut_ptr();
+    Box::into_raw(raw_out);
+    //     } {
+    //     fprintf(stderr,
+    //             b"Out of memory allocating data buffer.\n\x00" as *const u8 as
+    //                 *const c_char);
+    //     exit(1 as c_int);
+    // }
+    //
+    // // Clear the buffers that have just been allocated, just in-case
+    // memset(Modes.icao_cache as *mut c_void, 0 as c_int,
+    //        (::std::mem::size_of::<u32>() as
+    //            c_ulong).wrapping_mul(MODES_ICAO_CACHE_LEN as
+    //            c_ulong).wrapping_mul(2
+    //            as
+    //            c_int
+    //            as
+    //            c_ulong));
+    // memset(Modes.pFileData as *mut c_void, 127 as c_int,
+    //        MODES_ASYNC_BUF_SIZE as c_ulong);
+    // memset(Modes.magnitude as *mut c_void, 0 as c_int,
+    //        (MODES_ASYNC_BUF_SIZE as
+    //            c_ulong).wrapping_add((MODES_PREAMBLE_SAMPLES as
+    //            c_ulong).wrapping_mul(::std::mem::size_of::<u16>()
+    //            as
+    //            c_ulong)).wrapping_add((MODES_LONG_MSG_SAMPLES
+    //            as
+    //            c_ulong).wrapping_mul(::std::mem::size_of::<u16>()
+    //            as
+    //            c_ulong)));
+
+    // Validate the users Lat/Lon home location inputs
+    if state.fUserLat > 90.0f64
+        || state.fUserLat < -90.0f64
+        || state.fUserLon > 360.0f64
+        || state.fUserLon < -180.0f64
+    {
+        state.fUserLon = 0.0f64;
+        state.fUserLat = state.fUserLon
+    } else if state.fUserLon > 180.0f64 {
+        // If Longitude is +180 to +360, make it -180 to 0
+        state.fUserLon -= 360.0f64
+    }
+
+    // If both Lat and Lon are 0.0 then the users location is either invalid/not-set, or (s)he's in the
+    // Atlantic ocean off the west coast of Africa. This is unlikely to be correct.
+    // Set the user LatLon valid flag only if either Lat or Lon are non zero. Note the Greenwich meridian
+    // is at 0.0 Lon,so we must check for either fLat or fLon being non zero not both.
+    // Testing the flag at runtime will be much quicker than ((fLon != 0.0) || (fLat != 0.0))
+    state.bUserFlags &= !MODES_USER_LATLON_VALID;
+    if state.fUserLat != 0.0f64 || state.fUserLon != 0.0f64 {
+        state.bUserFlags |= MODES_USER_LATLON_VALID
+    }
+
+    // Limit the maximum requested raw output size to less than one Ethernet Block
+    if state.net_output_raw_size > MODES_RAWOUT_BUF_SIZE as c_int - 200 {
+        state.net_output_raw_size = MODES_RAWOUT_BUF_FLUSH as c_int
+    }
+    if state.net_output_raw_rate > 1000 {
+        state.net_output_raw_rate = MODES_RAWOUT_BUF_RATE
+    }
+    if state.net_sndbuf_size > 7 {
+        state.net_sndbuf_size = MODES_NET_SNDBUF_MAX
+    }
+
+    // // Initialise the Block Timers to something half sensible
+    // ftime(&mut Modes.stSystemTimeBlk);
+    // i = 0 as c_int;
+    // while i < MODES_ASYNC_BUF_NUMBER {
+    //     Modes.stSystemTimeRTL[i as usize] = Modes.stSystemTimeBlk;
+    //     i += 1
+    // }
+    //
+    // Each I and Q value varies from 0 to 255, which represents a range from -1 to +1. To get from the
+    // unsigned (0-255) range you therefore subtract 127 (or 128 or 127.5) from each I and Q, giving you
+    // a range from -127 to +128 (or -128 to +127, or -127.5 to +127.5)..
+    //
+    // To decode the AM signal, you need the magnitude of the waveform, which is given by sqrt((I^2)+(Q^2))
+    // The most this could be is if I&Q are both 128 (or 127 or 127.5), so you could end up with a magnitude
+    // of 181.019 (or 179.605, or 180.312)
+    //
+    // However, in reality the magnitude of the signal should never exceed the range -1 to +1, because the
+    // values are I = rCos(w) and Q = rSin(w). Therefore the integer computed magnitude should (can?) never
+    // exceed 128 (or 127, or 127.5 or whatever)
+    //
+    // If we scale up the results so that they range from 0 to 65535 (16 bits) then we need to multiply
+    // by 511.99, (or 516.02 or 514). antirez's original code multiplies by 360, presumably because he's
+    // assuming the maximim calculated amplitude is 181.019, and (181.019 * 360) = 65166.
+    //
+    // So lets see if we can improve things by subtracting 127.5, Well in integer arithmatic we can't
+    // subtract half, so, we'll double everything up and subtract one, and then compensate for the doubling
+    // in the multiplier at the end.
+    //
+    // If we do this we can never have I or Q equal to 0 - they can only be as small as +/- 1.
+    // This gives us a minimum magnitude of root 2 (0.707), so the dynamic range becomes (1.414-255). This
+    // also affects our scaling value, which is now 65535/(255 - 1.414), or 258.433254
+    //
+    // The sums then become mag = 258.433254 * (sqrt((I*2-255)^2 + (Q*2-255)^2) - 1.414)
+    //                   or mag = (258.433254 * sqrt((I*2-255)^2 + (Q*2-255)^2)) - 365.4798
+    //
+    // We also need to clip mag just incaes any rogue I/Q values somehow do have a magnitude greater than 255.
+    //
+    // i = 0 as c_int;
+    // while i <= 255 as c_int {
+    //     q = 0 as c_int;
+    //     while q <= 255 as c_int {
+    //         let mut mag: c_int = 0;
+    //         let mut mag_i: c_int = 0;
+    //         let mut mag_q: c_int = 0;
+    //         mag_i = i * 2 as c_int - 255 as c_int;
+    //         mag_q = q * 2 as c_int - 255 as c_int;
+    //         mag =
+    //             round(sqrt((mag_i * mag_i + mag_q * mag_q) as c_double)
+    //                 * 258.433254f64 - 365.4798f64) as c_int;
+    //         *state.maglut.offset((i * 256 as c_int + q) as isize) =
+    //             if mag < 65535 as c_int {
+    //                 mag
+    //             } else { 65535 as c_int } as u16;
+    //         q += 1
+    //     }
+    //     i += 1
+    // }
+    // for (i = 0; i <= 255; i++) {
+    //     for (q = 0; q <= 255; q++) {
+    //         int mag, mag_i, mag_q;
+    //
+    //         mag_i = (i * 2) - 255;
+    //         mag_q = (q * 2) - 255;
+    //
+    //         mag = (int) round((sqrt((mag_i*mag_i)+(mag_q*mag_q)) * 258.433254) - 365.4798);
+    //
+    //         Modes.maglut[(i*256)+q] = (uint16_t) ((mag < 65535) ? mag : 65535);
+    //     }
+    // }
+
+    let mut maglut = Box::new([0u16; 256 * 256]);
+    for i in 0..=255 {
+        for q in 0..=255 {
+            let mag_i = (i as c_int * 2) - 255;
+            let mag_q = (q as c_int * 2) - 255;
+            let mag = ((((mag_i * mag_i + mag_q * mag_q) as c_double).sqrt() * 258.433254)
+                - 365.4798)
+                .round() as c_int;
+
+            maglut[(i * 256) + q] = u16::try_from(mag).unwrap_or(std::u16::MAX);
+        }
+    }
+    state.maglut = maglut.as_mut_ptr();
+    Box::into_raw(maglut);
+
+    // Prepare error correction tables
+    unsafe { modesInitErrorInfoImpl(&mut bit_error_table, state.nfix_crc) };
+
+    (state, bit_error_table)
 }
 
 #[cfg(test)]

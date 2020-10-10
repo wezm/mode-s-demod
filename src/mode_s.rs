@@ -4,7 +4,7 @@ use std::convert::TryFrom;
 use std::ffi::CStr;
 use std::io::Write;
 use std::os::raw::{c_char, c_double, c_int, c_uchar, c_uint, c_ulong};
-use std::{io, mem, ptr, time};
+use std::{io, ptr};
 
 use crate::interactive::interactiveReceiveData;
 use crate::mode_ac::{decodeModeAMessage, detectModeA, ModeAToModeC, MODEAC_MSG_SAMPLES};
@@ -2316,15 +2316,15 @@ pub(crate) unsafe fn decodeCPR(
     fflag: c_int,
     surface: c_int,
 ) -> c_int {
-    let mut AirDlat0 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 60.0f64;
-    let mut AirDlat1 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 59.0f64;
-    let mut lat0 = (*a).even_cprlat as c_double;
-    let mut lat1 = (*a).odd_cprlat as c_double;
-    let mut lon0 = (*a).even_cprlon as c_double;
-    let mut lon1 = (*a).odd_cprlon as c_double;
+    let AirDlat0 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 60.0f64;
+    let AirDlat1 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 59.0f64;
+    let lat0 = (*a).even_cprlat as c_double;
+    let lat1 = (*a).odd_cprlat as c_double;
+    let lon0 = (*a).even_cprlon as c_double;
+    let lon1 = (*a).odd_cprlon as c_double;
 
     // Compute the Latitude Index "j"
-    let mut j = ((59 as c_int as c_double * lat0 - 60 as c_int as c_double * lat1)
+    let j = ((59 as c_int as c_double * lat0 - 60 as c_int as c_double * lat1)
         / 131072 as c_int as c_double
         + 0.5f64)
         .floor() as c_int;
@@ -2333,7 +2333,7 @@ pub(crate) unsafe fn decodeCPR(
     let mut rlat1 = AirDlat1
         * (cprModFunction(j, 59 as c_int) as c_double + lat1 / 131072 as c_int as c_double);
 
-    let mut now = crate::now() as i64;
+    let now = crate::now() as i64;
     let mut surface_rlat = MODES_USER_LATITUDE_DFLT;
     let mut surface_rlon = MODES_USER_LONGITUDE_DFLT;
 
@@ -2379,8 +2379,8 @@ pub(crate) unsafe fn decodeCPR(
     // Compute ni and the Longitude Index "m"
     if fflag != 0 {
         // Use odd packet.
-        let mut ni = cprNFunction(rlat1, 1 as c_int); // Use even packet.
-        let mut m = ((lon0 * (cprNLFunction(rlat1) - 1 as c_int) as c_double
+        let ni = cprNFunction(rlat1, 1 as c_int); // Use even packet.
+        let m = ((lon0 * (cprNLFunction(rlat1) - 1 as c_int) as c_double
             - lon1 * cprNLFunction(rlat1) as c_double)
             / 131072.0f64
             + 0.5f64)
@@ -2390,8 +2390,8 @@ pub(crate) unsafe fn decodeCPR(
         (*a).lat = rlat1
     } else {
         // Use even packet
-        let mut ni_0 = cprNFunction(rlat0, 0 as c_int);
-        let mut m_0 = ((lon0 * (cprNLFunction(rlat0) - 1 as c_int) as c_double
+        let ni_0 = cprNFunction(rlat0, 0 as c_int);
+        let m_0 = ((lon0 * (cprNLFunction(rlat0) - 1 as c_int) as c_double
             - lon1 * cprNLFunction(rlat0) as c_double)
             / 131072 as c_int as c_double
             + 0.5f64)
@@ -2522,7 +2522,7 @@ pub(crate) unsafe fn decodeCPRrelative(
     0
 }
 
-fn dumpRawMessage(descr: *const c_char, msg: *mut c_uchar, m: *mut u16, offset: u32) {
+fn dumpRawMessage(descr: *const c_char, _msg: *mut c_uchar, _m: *mut u16, _offset: u32) {
     // printf("\n--- %s\n    ", descr);
     // for (j = 0; j < MODES_LONG_MSG_BYTES; j++) {
     //     printf("%02x",msg[j]);

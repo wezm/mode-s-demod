@@ -1,12 +1,12 @@
 use std::convert::TryInto;
-use std::os::raw::{c_char, c_int, c_long, c_uint, c_ulong, c_void};
+use std::os::raw::{c_char, c_int, c_long, c_uint, c_void};
 use std::time::SystemTime;
 use std::{mem, ptr, time};
 
 use crate::mode_ac::{ModeAToModeC, MODEAC_MSG_FLAG, MODEAC_MSG_MODEA_ONLY, MODEAC_MSG_MODEC_OLD};
 use crate::mode_s::{decodeCPR, decodeCPRrelative};
 use crate::{
-    aircraft, modes, modesMessage, time_t, MODES_ACFLAGS_ALTITUDE_VALID, MODES_ACFLAGS_AOG,
+    aircraft, modes, modesMessage, MODES_ACFLAGS_ALTITUDE_VALID, MODES_ACFLAGS_AOG,
     MODES_ACFLAGS_AOG_VALID, MODES_ACFLAGS_CALLSIGN_VALID, MODES_ACFLAGS_HEADING_VALID,
     MODES_ACFLAGS_LATLON_VALID, MODES_ACFLAGS_LLBOTH_VALID, MODES_ACFLAGS_LLEITHER_VALID,
     MODES_ACFLAGS_LLODD_VALID, MODES_ACFLAGS_SPEED_VALID, MODES_ACFLAGS_SQUAWK_VALID,
@@ -18,7 +18,10 @@ const MODEAC_MSG_MODEC_HIT: c_int = (1 as c_int) << 3 as c_int;
 
 // Receive new messages and populate the interactive mode with more info
 //
-pub(crate) unsafe fn interactiveReceiveData(Modes: &mut modes, mm: *mut modesMessage) -> *mut aircraft {
+pub(crate) unsafe fn interactiveReceiveData(
+    Modes: &mut modes,
+    mm: *mut modesMessage,
+) -> *mut aircraft {
     let mut a = 0 as *mut aircraft;
     let mut aux = 0 as *mut aircraft;
 
@@ -166,7 +169,7 @@ pub(crate) unsafe fn interactiveReceiveData(Modes: &mut modes, mm: *mut modesMes
     // Update the aircrafts a->bFlags to reflect the newly received mm->bFlags;
     (*a).bFlags |= (*mm).bFlags;
     if (*mm).msgtype == 32 {
-        let mut flags = (*a).modeACflags;
+        let flags = (*a).modeACflags;
         if flags & (MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODEC_OLD) == MODEAC_MSG_MODEC_OLD {
             //
             // This Mode-C doesn't currently hit any known Mode-S, but it used to because MODEAC_MSG_MODEC_OLD is
@@ -229,7 +232,7 @@ unsafe fn interactiveCreateAircraft(mut mm: *mut modesMessage) -> *mut aircraft 
     // set them once here during initialisation, and don't bother to set them every
     // time this ModeA/C is received again in the future
     if (*mm).msgtype == 32 as c_int {
-        let mut modeC = ModeAToModeC(((*mm).modeA | (*mm).fs) as c_uint);
+        let modeC = ModeAToModeC(((*mm).modeA | (*mm).fs) as c_uint);
         a.modeACflags = MODEAC_MSG_FLAG;
         if modeC < -(12 as c_int) {
             a.modeACflags |= MODEAC_MSG_MODEA_ONLY
