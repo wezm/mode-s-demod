@@ -9,7 +9,7 @@ use std::os::raw::c_int;
 use std::{env, io, process};
 
 use ten_ninety::{
-    computeMagnitudeVectorImpl, detectModeSImpl, MODES_ASYNC_BUF_SAMPLES, MODES_ASYNC_BUF_SIZE,
+    compute_magnitude_vector_impl, detect_mode_s, MODES_ASYNC_BUF_SAMPLES, MODES_ASYNC_BUF_SIZE,
 };
 
 fn main() -> Result<(), io::Error> {
@@ -47,12 +47,12 @@ fn main() -> Result<(), io::Error> {
 
         // Translate the next lot of I/Q samples into Modes.magnitude
         unsafe {
-            computeMagnitudeVectorImpl(buf.as_mut_ptr() as *mut u16, &mut state as *mut _);
+            compute_magnitude_vector_impl(buf.as_mut_ptr() as *mut u16, &mut state as *mut _);
         }
 
         // Process this buffer
         unsafe {
-            detectModeSImpl(
+            detect_mode_s(
                 state.magnitude,
                 MODES_ASYNC_BUF_SAMPLES as u32,
                 &mut state as *mut _,

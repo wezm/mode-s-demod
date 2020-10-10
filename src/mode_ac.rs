@@ -1,6 +1,6 @@
 use std::os::raw::{c_int, c_uchar, c_uint};
 
-use crate::modesMessage;
+use crate::ModesMessage;
 
 // ===================== Mode A/C detection and decoding  ===================
 
@@ -115,11 +115,11 @@ pub static mut MODE_AMID_TABLE: [u32; 24] = [
 // add the values together..
 //
 #[rustfmt::skip]
-pub(crate) unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
-    let mut ModeABits = 0;
-    let mut ModeAErrs = 0;
+pub(crate) unsafe fn detect_mode_a(m: *mut u16, mm: *mut ModesMessage) -> c_int {
+    let mut mode_a_bits = 0;
+    let mut mode_a_errs = 0;
     let mut bit: c_int;
-    let mut lastSpace = 0;
+    let mut last_space = 0;
     let n3: c_int;
 
     // m[0] contains the energy from    0 ->  499 nS
@@ -178,12 +178,12 @@ pub(crate) unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
     //      signal = (m1 + m2) - ((m0 + m3) * 2)
     //      noise  = (m0 + m3) / 2
     //
-    let F1_sig = m1 + m2 - (m0 + m3 << 1);
-    let F1_noise = m0 + m3 >> 1;
+    let f1_sig = m1 + m2 - (m0 + m3 << 1);
+    let f1_noise = m0 + m3 >> 1;
 
     // #[rustfmt::skip]
-    if F1_sig < MODEAC_MSG_SQUELCH_LEVEL // minimum required  F1 signal amplitude
-        || F1_sig < F1_noise << 2        // minimum allowable Sig/Noise ratio 4:1
+    if f1_sig < MODEAC_MSG_SQUELCH_LEVEL // minimum required  F1 signal amplitude
+        || f1_sig < f1_noise << 2        // minimum allowable Sig/Noise ratio 4:1
     {
         return 0;
     }
@@ -193,8 +193,8 @@ pub(crate) unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
     // Our F1 is centered somewhere between samples m[1] and m[2]. We can guesstimate where F2 is
     // by comparing the ratio of m1 and m2, and adding on 20.3 uS (40.6 samples)
     //
-    let mut mPhase = m2 * 20 / (m1 + m2);
-    let mut byte = (mPhase + 812) / 20;
+    let mut m_phase = m2 * 20 / (m1 + m2);
+    let mut byte = (m_phase + 812) / 20;
     let fresh0 = byte;
     byte = byte + 1;
     let n0 = *m.offset(fresh0 as isize) as c_int;
@@ -213,7 +213,7 @@ pub(crate) unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
     //
     // if the sample bob on (Phase == 0), don't look at n3
     //
-    if (mPhase + 812) % 20 != 0 {
+    if (m_phase + 812) % 20 != 0 {
         let fresh3 = byte;
         byte = byte + 1;
         n3 = *m.offset(fresh3 as isize) as c_int
@@ -230,161 +230,161 @@ pub(crate) unsafe fn detectModeA(m: *mut u16, mm: *mut modesMessage) -> c_int {
         return 0;
     }
 
-    let F2_sig = n1 + n2 - (n0 + n3 << 1);
-    let F2_noise = n0 + n3 >> 1;
+    let f2_sig = n1 + n2 - (n0 + n3 << 1);
+    let f2_noise = n0 + n3 >> 1;
 
     // #[rustfmt::skip]
-    if F2_sig < MODEAC_MSG_SQUELCH_LEVEL // minimum required  F2 signal amplitude
-        || F2_sig < F2_noise << 2 // maximum allowable Sig/Noise ratio 4:1
+    if f2_sig < MODEAC_MSG_SQUELCH_LEVEL // minimum required  F2 signal amplitude
+        || f2_sig < f2_noise << 2 // maximum allowable Sig/Noise ratio 4:1
     {
         return 0;
     }
 
-    let mut fSig = F1_sig + F2_sig >> 1;
-    let fNoise = F1_noise + F2_noise >> 1;
-    let fLoLo = fNoise + (fSig >> 2); // 1/2
-    let fLevel = fNoise + (fSig >> 1);
-    let mut lastBitWasOne = 1;
-    let mut lastBit = F1_sig;
+    let mut f_sig = f1_sig + f2_sig >> 1;
+    let f_noise = f1_noise + f2_noise >> 1;
+    let f_lo_lo = f_noise + (f_sig >> 2); // 1/2
+    let f_level = f_noise + (f_sig >> 1);
+    let mut last_bit_was_one = 1;
+    let mut last_bit = f1_sig;
     //
     // Now step by a half ModeA bit, 0.725nS, which is 1.45 samples, which is 29/20
     // No need to do bit 0 because we've already selected it as a valid F1
     // Do several bits past the SPI to increase error rejection
     //
     let mut j = 1; //    add in the second sample's energy
-    mPhase += 29;
+    m_phase += 29;
     while j < 48 as c_int {
-        byte = 1 + mPhase / 20;
+        byte = 1 + m_phase / 20;
 
-        let mut thisSample = *m.offset(byte as isize) as c_int - fNoise;
+        let mut this_sample = *m.offset(byte as isize) as c_int - f_noise;
         // If the bit is split over two samples...
-        if mPhase % 20 != 0 {
+        if m_phase % 20 != 0 {
             // add in the second sample's energy
-            thisSample += *m.offset((byte + 1) as isize) as c_int - fNoise
+            this_sample += *m.offset((byte + 1) as isize) as c_int - f_noise
         }
 
         // If we're calculating a space value
         if j & 1 != 0 {
-            lastSpace = thisSample
+            last_space = this_sample
         } else {
             // We're calculating a new bit value
             bit = j >> 1;
-            if thisSample >= fLevel {
+            if this_sample >= f_level {
                 // We're calculating a new bit value, and its a one
                 let fresh4 = bit; // or in the correct bit
                 bit = bit - 1;
-                ModeABits = (ModeABits as c_uint | MODE_ABIT_TABLE[fresh4 as usize]) as c_int;
+                mode_a_bits = (mode_a_bits as c_uint | MODE_ABIT_TABLE[fresh4 as usize]) as c_int;
 
-                if lastBitWasOne != 0 {
+                if last_bit_was_one != 0 {
                     // This bit is one, last bit was one, so check the last space is somewhere less than one
-                    if lastSpace >= thisSample >> 1 || lastSpace >= lastBit {
-                        ModeAErrs = (ModeAErrs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
+                    if last_space >= this_sample >> 1 || last_space >= last_bit {
+                        mode_a_errs = (mode_a_errs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
                     }
-                } else if lastSpace >= thisSample >> 1 {
+                } else if last_space >= this_sample >> 1 {
                     // This bit,is one, last bit was zero, so check the last space is somewhere less than one
-                    ModeAErrs = (ModeAErrs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
+                    mode_a_errs = (mode_a_errs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
                 }
 
-                lastBitWasOne = 1;
+                last_bit_was_one = 1;
             } else {
                 // We're calculating a new bit value, and its a zero
-                if lastBitWasOne != 0 {
+                if last_bit_was_one != 0 {
                     // This bit is zero, last bit was one, so check the last space is somewhere in between
-                    if lastSpace >= lastBit {
-                        ModeAErrs = (ModeAErrs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
+                    if last_space >= last_bit {
+                        mode_a_errs = (mode_a_errs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
                     }
-                } else if lastSpace >= fLoLo {
+                } else if last_space >= f_lo_lo {
                     // This bit,is zero, last bit was zero, so check the last space is zero too
-                    ModeAErrs = (ModeAErrs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
+                    mode_a_errs = (mode_a_errs as c_uint | MODE_AMID_TABLE[bit as usize]) as c_int
                 }
 
-                lastBitWasOne = 0;
+                last_bit_was_one = 0;
             }
 
-            lastBit = thisSample >> 1;
+            last_bit = this_sample >> 1;
         }
 
-        mPhase += 29;
+        m_phase += 29;
         j += 1
     }
 
     //
     // Output format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
     //
-    if ModeABits < 3 || ModeABits as c_uint & 0xffff8808 as c_uint != 0 || ModeAErrs != 0 {
-        ModeABits = 0;
-        return ModeABits;
+    if mode_a_bits < 3 || mode_a_bits as c_uint & 0xffff8808 as c_uint != 0 || mode_a_errs != 0 {
+        mode_a_bits = 0;
+        return mode_a_bits;
     }
 
-    fSig = fSig + 0x7f >> 8;
-    (*mm).signalLevel = if fSig < 255 { fSig } else { 255 } as c_uchar;
+    f_sig = f_sig + 0x7f >> 8;
+    (*mm).signal_level = if f_sig < 255 { f_sig } else { 255 } as c_uchar;
 
-    return ModeABits;
+    return mode_a_bits;
 }
 
 // Input format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
 //
 #[rustfmt::skip]
-pub(crate) fn ModeAToModeC(ModeA: c_uint) -> c_int {
-    let mut FiveHundreds: c_uint = 0;
-    let mut OneHundreds: c_uint = 0;
+pub(crate) fn mode_a_to_mode_c(mode_a: c_uint) -> c_int {
+    let mut five_hundreds: c_uint = 0;
+    let mut one_hundreds: c_uint = 0;
 
-    if ModeA & 0xffff888b != 0 // D1 set is illegal. D2 set is > 62700ft which is unlikely
-       || ModeA & 0xf0 == 0 // C1,,C4 cannot be Zero
+    if mode_a & 0xffff888b != 0 // D1 set is illegal. D2 set is > 62700ft which is unlikely
+       || mode_a & 0xf0 == 0 // C1,,C4 cannot be Zero
     {
         // TODO: Change return type to Option to capture this case and the one below
         return -9999;
     }
 
-    if ModeA & 0x10 != 0 { OneHundreds ^= 0x7 } // C1
-    if ModeA & 0x20 != 0 { OneHundreds ^= 0x3 } // C2
-    if ModeA & 0x40 != 0 { OneHundreds ^= 0x1 } // C4
+    if mode_a & 0x10 != 0 { one_hundreds ^= 0x7 } // C1
+    if mode_a & 0x20 != 0 { one_hundreds ^= 0x3 } // C2
+    if mode_a & 0x40 != 0 { one_hundreds ^= 0x1 } // C4
 
-    // Remove 7s from OneHundreds (Make 7->5, and 5->7).
-    if OneHundreds & 5 == 5 { OneHundreds ^= 2 }
+    // Remove 7s from one_hundreds (Make 7->5, and 5->7).
+    if one_hundreds & 5 == 5 { one_hundreds ^= 2 }
 
     // Check for invalid codes, only 1 to 5 are valid
-    if OneHundreds > 5 { return -9999; }
+    if one_hundreds > 5 { return -9999; }
 
-    // if (ModeA & 0x0001) {FiveHundreds ^= 0x1FF;} // D1 never used for altitude
-    if ModeA & 0x2 != 0 { FiveHundreds ^= 0xff }    // D2
-    if ModeA & 0x4 != 0 { FiveHundreds ^= 0x7f }    // D4
-    if ModeA & 0x1000 != 0 { FiveHundreds ^= 0x3f } // A1
-    if ModeA & 0x2000 != 0 { FiveHundreds ^= 0x1f } // A2
-    if ModeA & 0x4000 != 0 { FiveHundreds ^= 0xf }  // A4
-    if ModeA & 0x100 != 0 { FiveHundreds ^= 0x7 }   // B1
-    if ModeA & 0x200 != 0 { FiveHundreds ^= 0x3 }   // B2
-    if ModeA & 0x400 != 0 { FiveHundreds ^= 0x1 }   // B4
+    // if (mode_a & 0x0001) {five_hundreds ^= 0x1FF;} // D1 never used for altitude
+    if mode_a & 0x2 != 0 { five_hundreds ^= 0xff }    // D2
+    if mode_a & 0x4 != 0 { five_hundreds ^= 0x7f }    // D4
+    if mode_a & 0x1000 != 0 { five_hundreds ^= 0x3f } // A1
+    if mode_a & 0x2000 != 0 { five_hundreds ^= 0x1f } // A2
+    if mode_a & 0x4000 != 0 { five_hundreds ^= 0xf }  // A4
+    if mode_a & 0x100 != 0 { five_hundreds ^= 0x7 }   // B1
+    if mode_a & 0x200 != 0 { five_hundreds ^= 0x3 }   // B2
+    if mode_a & 0x400 != 0 { five_hundreds ^= 0x1 }   // B4
 
-    // Correct order of OneHundreds.
-    if FiveHundreds & 1 != 0 {
-        OneHundreds = (6 as c_uint).wrapping_sub(OneHundreds)
+    // Correct order of one_hundreds.
+    if five_hundreds & 1 != 0 {
+        one_hundreds = (6 as c_uint).wrapping_sub(one_hundreds)
     }
 
-    return FiveHundreds
+    return five_hundreds
         .wrapping_mul(5)
-        .wrapping_add(OneHundreds)
+        .wrapping_add(one_hundreds)
         .wrapping_sub(13) as c_int;
 }
 
-pub(crate) unsafe fn decodeModeAMessage(mm: *mut modesMessage, ModeA: c_int) {
+pub(crate) unsafe fn decode_mode_a_message(mm: *mut ModesMessage, mode_a: c_int) {
     (*mm).msgtype = 32; // Valid Mode S DF's are DF-00 to DF-31.
                         // so use 32 to indicate Mode A/C
 
     (*mm).msgbits = 16; // Fudge up a Mode S style data stream
-    (*mm).msg[0] = (ModeA >> 8) as c_uchar;
-    (*mm).msg[1] = ModeA as c_uchar;
+    (*mm).msg[0] = (mode_a >> 8) as c_uchar;
+    (*mm).msg[1] = mode_a as c_uchar;
 
     // Fudge an ICAO address based on Mode A (remove the Ident bit)
     // Use an upper address byte of FF, since this is ICAO unallocated
-    (*mm).addr = (0xff0000 | ModeA & 0xff7f) as u32;
+    (*mm).addr = (0xff0000 | mode_a & 0xff7f) as u32;
 
-    // Set the Identity field to ModeA
-    (*mm).modeA = ModeA & 0x7777;
-    (*mm).bFlags |= MODES_ACFLAGS_SQUAWK_VALID;
+    // Set the Identity field to mode_a
+    (*mm).mode_a = mode_a & 0x7777;
+    (*mm).b_flags |= MODES_ACFLAGS_SQUAWK_VALID;
 
     // Flag ident in flight status
-    (*mm).fs = ModeA & 0x80;
+    (*mm).fs = mode_a & 0x80;
 
     // Not much else we can tell from a Mode A/C reply.
     // Just fudge up a few bits to keep other code happy

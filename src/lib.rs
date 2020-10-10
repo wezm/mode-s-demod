@@ -1,5 +1,3 @@
-#![allow(non_snake_case, non_camel_case_types)]
-
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::os::raw::{c_char, c_double, c_int, c_long, c_uchar, c_uint};
@@ -10,8 +8,8 @@ mod interactive;
 mod mode_ac;
 mod mode_s;
 
-use mode_s::modesChecksum;
-pub use mode_s::{computeMagnitudeVectorImpl, detectModeSImpl, errorinfo};
+use mode_s::mode_s_checksum;
+pub use mode_s::{compute_magnitude_vector_impl, detect_mode_s, errorinfo};
 
 pub const MODES_NET_SNDBUF_MAX: c_int = 7;
 
@@ -82,24 +80,24 @@ type time_t = c_long;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
-struct aircraft {
-    addr: u32,                 // ICAO address
-    flight: [c_char; 16],      // Flight number
-    signalLevel: [c_uchar; 8], // Last 8 Signal Amplitudes
-    altitude: c_int,           // Altitude
-    speed: c_int,              // Velocity
-    track: c_int,              // Angle of flight
-    vert_rate: c_int,          // Vertical rate.
-    seen: time_t,              // Time at which the last packet was received
-    seenLatLon: time_t,        // Time at which the last lat long was calculated
-    timestamp: u64,            // Timestamp at which the last packet was received
-    timestampLatLon: u64,      // Timestamp at which the last lat long was calculated
-    messages: c_long,          // Number of Mode S messages received
-    modeA: c_int,              // Squawk
-    modeC: c_int,              // Altitude
-    modeAcount: c_long,        // Mode A Squawk hit Count
-    modeCcount: c_long,        // Mode C Altitude hit Count
-    modeACflags: c_int,        // Flags for mode A/C recognition
+struct Aircraft {
+    addr: u32,                  // ICAO address
+    flight: [c_char; 16],       // Flight number
+    signal_level: [c_uchar; 8], // Last 8 Signal Amplitudes
+    altitude: c_int,            // Altitude
+    speed: c_int,               // Velocity
+    track: c_int,               // Angle of flight
+    vert_rate: c_int,           // Vertical rate.
+    seen: time_t,               // Time at which the last packet was received
+    seen_lat_lon: time_t,       // Time at which the last lat long was calculated
+    timestamp: u64,             // Timestamp at which the last packet was received
+    timestamp_lat_lon: u64,     // Timestamp at which the last lat long was calculated
+    messages: c_long,           // Number of Mode S messages received
+    mode_a: c_int,              // Squawk
+    mode_c: c_int,              // Altitude
+    mode_a_count: c_long,       // Mode A Squawk hit Count
+    mode_c_count: c_long,       // Mode C Altitude hit Count
+    mode_ac_flags: c_int,       // Flags for mode A/C recognition
 
     // Encoded latitude and longitude as extracted by odd and even CPR encoded messages
     odd_cprlat: c_int,
@@ -110,24 +108,24 @@ struct aircraft {
     even_cprtime: u64,
     lat: c_double,
     lon: c_double,       // Coordinated obtained from CPR encoded data
-    bFlags: c_int,       // Flags related to valid fields in this structure
-    next: *mut aircraft, // Next aircraft in our linked list
+    b_flags: c_int,      // Flags related to valid fields in this structure
+    next: *mut Aircraft, // Next Aircraft in our linked list
 }
 
 // Program global state
 #[derive(Clone)]
 #[repr(C)]
-pub struct modes {
+pub struct ModeS {
     pub magnitude: *mut u16, // Magnitude vector
-    timestampBlk: u64,       // Timestamp of the start of the current block
+    timestamp_blk: u64,      // Timestamp of the start of the current block
     icao_cache: *mut u32,    // Recently seen ICAO addresses cache
     maglut: *mut u16,        // I/Q -> Magnitude lookup table
 
     // Networking
-    rawOut: *mut c_char,   // Buffer for building raw output data
-    rawOutUsed: c_int,     // How much of the buffer is currently used
-    beastOut: *mut c_char, // Buffer for building beast output data
-    beastOutUsed: c_int,   // How much if the buffer is currently used
+    raw_out: *mut c_char,   // Buffer for building raw output data
+    raw_out_used: c_int,    // How much of the buffer is currently used
+    beast_out: *mut c_char, // Buffer for building beast output data
+    beast_out_used: c_int,  // How much if the buffer is currently used
 
     // Configuration
     phase_enhance: c_int,             // Enable phase enhancement if true
@@ -151,15 +149,15 @@ pub struct modes {
     mlat: c_int, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
 
     // User details
-    fUserLat: c_double, // Users receiver/antenna lat/lon needed for initial surface location
-    fUserLon: c_double, // Users receiver/antenna lat/lon needed for initial surface location
-    bUserFlags: c_int,  // Flags relating to the user details
+    f_user_lat: c_double, // Users receiver/antenna lat/lon needed for initial surface location
+    f_user_lon: c_double, // Users receiver/antenna lat/lon needed for initial surface location
+    b_user_flags: c_int,  // Flags relating to the user details
 
     // Interactive mode
-    aircrafts: *mut aircraft,
+    aircrafts: *mut Aircraft,
 
     // DF List mode
-    bEnableDFLogging: c_int, // Set to enable DF Logging
+    b_enable_dflogging: c_int, // Set to enable DF Logging
 
     // DF List mode
     stat_valid_preamble: c_uint,
@@ -187,14 +185,14 @@ pub struct modes {
     // index 1 for double bit errors etc.
     stat_ph_bit_fix: [c_uint; MODES_MAX_BITERRORS],
 
-    stat_DF_Len_Corrected: c_uint,
-    stat_DF_Type_Corrected: c_uint,
-    stat_ModeAC: c_uint,
+    stat_df_len_corrected: c_uint,
+    stat_df_type_corrected: c_uint,
+    stat_mode_ac: c_uint,
 }
 
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
-struct modesMessage {
+struct ModesMessage {
     msg: [c_uchar; MODES_LONG_MSG_BYTES],     // Binary message.
     msgbits: c_int,                           // Number of bits in message
     msgtype: c_int,                           // Downlink format #
@@ -204,9 +202,9 @@ struct modesMessage {
     corrected: [c_char; MODES_MAX_BITERRORS], // corrected bit positions
     addr: u32,                                // ICAO Address from bytes 1 2 and 3
     phase_corrected: c_int,                   // True if phase correction was applied
-    timestampMsg: u64,                        // Timestamp of the message
+    timestamp_msg: u64,                       // Timestamp of the message
     remote: c_int,                            // If set this message is from a remote station
-    signalLevel: c_uchar,                     // Signal Amplitude
+    signal_level: c_uchar,                    // Signal Amplitude
 
     // DF 11
     ca: c_int, // Responder capabilities
@@ -215,30 +213,30 @@ struct modesMessage {
     // DF 17, DF 18
     metype: c_int,        // Extended squitter message type.
     mesub: c_int,         // Extended squitter message subtype.
-    heading: c_int,       // Reported by aircraft, or computed from from EW and NS velocity
+    heading: c_int,       // Reported by Aircraft, or computed from from EW and NS velocity
     raw_latitude: c_int,  // Non decoded latitude.
     raw_longitude: c_int, // Non decoded longitude.
-    fLat: c_double,       // Coordinates obtained from CPR encoded data if/when decoded
-    fLon: c_double,       // Coordinates obtained from CPR encoded data if/when decoded
+    f_lat: c_double,      // Coordinates obtained from CPR encoded data if/when decoded
+    f_lon: c_double,      // Coordinates obtained from CPR encoded data if/when decoded
     flight: [c_char; 16], // 8 chars flight number.
     ew_velocity: c_int,   // E/W velocity.
     ns_velocity: c_int,   // N/S velocity.
     vert_rate: c_int,     // Vertical rate.
-    velocity: c_int,      // Reported by aircraft, or computed from from EW and NS velocity
+    velocity: c_int,      // Reported by Aircraft, or computed from from EW and NS velocity
 
     // DF4, DF5, DF20, DF21
-    fs: c_int,    // Flight status for DF4,5,20,21
-    modeA: c_int, // 13 bits identity (Squawk).
+    fs: c_int,     // Flight status for DF4,5,20,21
+    mode_a: c_int, // 13 bits identity (Squawk).
 
     // Fields used by multiple message types.
     altitude: c_int,
     unit: c_int,
-    bFlags: c_int, // Flags related to fields in this structure
+    b_flags: c_int, // Flags related to fields in this structure
 }
 
-impl Default for modes {
+impl Default for ModeS {
     fn default() -> Self {
-        modes {
+        ModeS {
             check_crc: 1,
             raw: 0,
             mode_ac: 0,
@@ -256,12 +254,12 @@ impl Default for modes {
             onlyaddr: 0,
             mlat: 0,
             interactive_display_ttl: MODES_INTERACTIVE_DISPLAY_TTL,
-            fUserLat: MODES_USER_LATITUDE_DFLT,
-            fUserLon: MODES_USER_LONGITUDE_DFLT,
+            f_user_lat: MODES_USER_LATITUDE_DFLT,
+            f_user_lon: MODES_USER_LONGITUDE_DFLT,
 
-            bUserFlags: 0,
+            b_user_flags: 0,
             aircrafts: ptr::null_mut(),
-            bEnableDFLogging: 0,
+            b_enable_dflogging: 0,
             stat_valid_preamble: 0,
             stat_demodulated0: 0,
             stat_demodulated1: 0,
@@ -280,18 +278,18 @@ impl Default for modes {
             stat_ph_badcrc: 0,
             stat_ph_fixed: 0,
             stat_ph_bit_fix: [0; MODES_MAX_BITERRORS],
-            stat_DF_Len_Corrected: 0,
-            stat_DF_Type_Corrected: 0,
-            stat_ModeAC: 0,
+            stat_df_len_corrected: 0,
+            stat_df_type_corrected: 0,
+            stat_mode_ac: 0,
             icao_cache: ptr::null_mut(),
             magnitude: ptr::null_mut(),
-            timestampBlk: 0,
+            timestamp_blk: 0,
             maglut: ptr::null_mut(),
 
-            rawOut: ptr::null_mut(),
-            rawOutUsed: 0,
-            beastOut: ptr::null_mut(),
-            beastOutUsed: 0,
+            raw_out: ptr::null_mut(),
+            raw_out_used: 0,
+            beast_out: ptr::null_mut(),
+            beast_out_used: 0,
 
             phase_enhance: 0,
             nfix_crc: 0,
@@ -305,7 +303,7 @@ fn cmp_errorinfo(e0: &errorinfo, e1: &errorinfo) -> Ordering {
 
 // TODO: Can this be made a const fn?
 // Compute the table of all syndromes for 1-bit and 2-bit error vectors
-pub unsafe fn modesInitErrorInfoImpl(bitErrorTable: &mut [errorinfo], nfix_crc: c_int) {
+pub unsafe fn modes_init_error_info_impl(bit_error_table: &mut [errorinfo], nfix_crc: c_int) {
     let mut msg: [c_uchar; 14] = [0; MODES_LONG_MSG_BYTES as usize];
     let mut j: c_int;
     let mut n: c_int = 0;
@@ -319,11 +317,11 @@ pub unsafe fn modesInitErrorInfoImpl(bitErrorTable: &mut [errorinfo], nfix_crc: 
         let mask0: c_int = (1 as c_int) << 7 as c_int - (i & 7 as c_int);
         // revert error0
         msg[bytepos0 as usize] = (msg[bytepos0 as usize] as c_int ^ mask0) as c_uchar; // create error0
-        crc = modesChecksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // single bit error case
-        bitErrorTable[n as usize].syndrome = crc;
-        bitErrorTable[n as usize].bits = 1 as c_int;
-        bitErrorTable[n as usize].pos[0 as c_int as usize] = i;
-        bitErrorTable[n as usize].pos[1 as c_int as usize] = -(1 as c_int);
+        crc = mode_s_checksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // single bit error case
+        bit_error_table[n as usize].syndrome = crc;
+        bit_error_table[n as usize].bits = 1 as c_int;
+        bit_error_table[n as usize].pos[0 as c_int as usize] = i;
+        bit_error_table[n as usize].pos[1 as c_int as usize] = -(1 as c_int);
         n += 1 as c_int;
         if nfix_crc > 1 as c_int {
             j = i + 1 as c_int;
@@ -332,14 +330,14 @@ pub unsafe fn modesInitErrorInfoImpl(bitErrorTable: &mut [errorinfo], nfix_crc: 
                 let mask1: c_int = (1 as c_int) << 7 as c_int - (j & 7 as c_int);
                 // revert error1
                 msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar; // create error1
-                crc = modesChecksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // two bit error case
-                if n >= bitErrorTable.len() as c_int {
+                crc = mode_s_checksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // two bit error case
+                if n >= bit_error_table.len() as c_int {
                     break;
                 }
-                bitErrorTable[n as usize].syndrome = crc;
-                bitErrorTable[n as usize].bits = 2 as c_int;
-                bitErrorTable[n as usize].pos[0 as c_int as usize] = i;
-                bitErrorTable[n as usize].pos[1 as c_int as usize] = j;
+                bit_error_table[n as usize].syndrome = crc;
+                bit_error_table[n as usize].bits = 2 as c_int;
+                bit_error_table[n as usize].pos[0 as c_int as usize] = i;
+                bit_error_table[n as usize].pos[1 as c_int as usize] = j;
                 n += 1 as c_int;
                 msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar;
                 j += 1
@@ -349,7 +347,7 @@ pub unsafe fn modesInitErrorInfoImpl(bitErrorTable: &mut [errorinfo], nfix_crc: 
         i += 1
     }
 
-    bitErrorTable.sort_by(cmp_errorinfo)
+    bit_error_table.sort_by(cmp_errorinfo)
 }
 
 fn now() -> u64 {
@@ -359,8 +357,8 @@ fn now() -> u64 {
         .expect("now doesn't fit in u64")
 }
 
-pub fn modes_init() -> (modes, [errorinfo; NERRORINFO]) {
-    let mut state = modes {
+pub fn modes_init() -> (ModeS, [errorinfo; NERRORINFO]) {
+    let mut state = ModeS {
         nfix_crc: MODES_MAX_BITERRORS as c_int, // --aggressive
         phase_enhance: 1,                       // --phase-enhance
         ..Default::default()
@@ -378,34 +376,34 @@ pub fn modes_init() -> (modes, [errorinfo; NERRORINFO]) {
     Box::into_raw(magnitude);
 
     let mut beast_out = Box::new([0 as c_char; MODES_RAWOUT_BUF_SIZE]);
-    state.beastOut = beast_out.as_mut_ptr();
+    state.beast_out = beast_out.as_mut_ptr();
     Box::into_raw(beast_out);
 
     let mut raw_out = Box::new([0 as c_char; MODES_RAWOUT_BUF_SIZE]);
-    state.rawOut = raw_out.as_mut_ptr();
+    state.raw_out = raw_out.as_mut_ptr();
     Box::into_raw(raw_out);
 
     // Validate the users Lat/Lon home location inputs
-    if state.fUserLat > 90.0f64
-        || state.fUserLat < -90.0f64
-        || state.fUserLon > 360.0f64
-        || state.fUserLon < -180.0f64
+    if state.f_user_lat > 90.0f64
+        || state.f_user_lat < -90.0f64
+        || state.f_user_lon > 360.0f64
+        || state.f_user_lon < -180.0f64
     {
-        state.fUserLon = 0.0f64;
-        state.fUserLat = state.fUserLon
-    } else if state.fUserLon > 180.0f64 {
+        state.f_user_lon = 0.0f64;
+        state.f_user_lat = state.f_user_lon
+    } else if state.f_user_lon > 180.0f64 {
         // If Longitude is +180 to +360, make it -180 to 0
-        state.fUserLon -= 360.0f64
+        state.f_user_lon -= 360.0f64
     }
 
     // If both Lat and Lon are 0.0 then the users location is either invalid/not-set, or (s)he's in the
     // Atlantic ocean off the west coast of Africa. This is unlikely to be correct.
     // Set the user LatLon valid flag only if either Lat or Lon are non zero. Note the Greenwich meridian
-    // is at 0.0 Lon,so we must check for either fLat or fLon being non zero not both.
-    // Testing the flag at runtime will be much quicker than ((fLon != 0.0) || (fLat != 0.0))
-    state.bUserFlags &= !MODES_USER_LATLON_VALID;
-    if state.fUserLat != 0.0f64 || state.fUserLon != 0.0f64 {
-        state.bUserFlags |= MODES_USER_LATLON_VALID
+    // is at 0.0 Lon,so we must check for either f_lat or f_lon being non zero not both.
+    // Testing the flag at runtime will be much quicker than ((f_lon != 0.0) || (f_lat != 0.0))
+    state.b_user_flags &= !MODES_USER_LATLON_VALID;
+    if state.f_user_lat != 0.0f64 || state.f_user_lon != 0.0f64 {
+        state.b_user_flags |= MODES_USER_LATLON_VALID
     }
 
     // Limit the maximum requested raw output size to less than one Ethernet Block
@@ -497,7 +495,7 @@ pub fn modes_init() -> (modes, [errorinfo; NERRORINFO]) {
     Box::into_raw(maglut);
 
     // Prepare error correction tables
-    unsafe { modesInitErrorInfoImpl(&mut bit_error_table, state.nfix_crc) };
+    unsafe { modes_init_error_info_impl(&mut bit_error_table, state.nfix_crc) };
 
     (state, bit_error_table)
 }
@@ -514,7 +512,7 @@ mod tests {
             pos: [0; 2],
         }; NERRORINFO];
         let nfix_crc_agressive = 2; // TODO: test with 1 and 2
-        unsafe { modesInitErrorInfoImpl(&mut bit_error_table, nfix_crc_agressive) };
+        unsafe { modes_init_error_info_impl(&mut bit_error_table, nfix_crc_agressive) };
 
         // Test code: report if any syndrome appears at least twice. In this
         // case the correction cannot be done without ambiguity.

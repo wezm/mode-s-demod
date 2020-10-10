@@ -6,10 +6,10 @@ use std::io::Write;
 use std::os::raw::{c_char, c_double, c_int, c_uchar, c_uint, c_ulong};
 use std::{io, ptr};
 
-use crate::interactive::interactiveReceiveData;
-use crate::mode_ac::{decodeModeAMessage, detectModeA, ModeAToModeC, MODEAC_MSG_SAMPLES};
+use crate::interactive::interactive_receive_data;
+use crate::mode_ac::{decode_mode_a_message, detect_mode_a, mode_a_to_mode_c, MODEAC_MSG_SAMPLES};
 use crate::{
-    aircraft, modes, modesMessage, MODES_ACFLAGS_ALTITUDE_VALID, MODES_ACFLAGS_EWSPEED_VALID,
+    Aircraft, ModeS, ModesMessage, MODES_ACFLAGS_ALTITUDE_VALID, MODES_ACFLAGS_EWSPEED_VALID,
     MODES_ACFLAGS_HEADING_VALID, MODES_ACFLAGS_LATLON_REL_OK, MODES_ACFLAGS_LATLON_VALID,
     MODES_ACFLAGS_NSSPEED_VALID, MODES_ACFLAGS_SPEED_VALID, MODES_ACFLAGS_VERTRATE_VALID,
     MODES_ASYNC_BUF_SAMPLES, MODES_DEBUG_BADCRC, MODES_DEBUG_DEMOD, MODES_DEBUG_DEMODERR,
@@ -86,7 +86,7 @@ pub struct errorinfo {
 }
 
 // TODO: Change input to have a known length so we can get rid of pointer derefs and unsafe
-pub(crate) unsafe fn modesChecksum(mut msg: *mut c_uchar, mut bits: c_int) -> u32 {
+pub(crate) unsafe fn mode_s_checksum(mut msg: *mut c_uchar, mut bits: c_int) -> u32 {
     let mut crc: u32 = 0;
     let mut offset = if bits == 112 { 0 } else { 112 - 56 };
     let mut the_byte: u8 = *msg;
@@ -120,7 +120,7 @@ pub(crate) unsafe fn modesChecksum(mut msg: *mut c_uchar, mut bits: c_int) -> u3
 // All known DF's 16 or greater are long. All known DF's 15 or less are short.
 // There are lots of unused codes in both category, so we can assume ICAO will stick to
 // these rules, meaning that the most significant bit of the DF indicates the length.
-fn modesMessageLenByType(type_: c_int) -> c_int {
+fn mode_s_message_len_by_type(type_: c_int) -> c_int {
     if type_ & 0x10 == 0x10 {
         MODES_LONG_MSG_BITS
     } else {
@@ -135,7 +135,7 @@ fn modesMessageLenByType(type_: c_int) -> c_int {
 // must be of length at least maxcorrected.
 // Return number of fixed bits.
 //
-unsafe fn fixBitErrorsImpl(
+unsafe fn fix_bit_errors(
     msg: *mut c_uchar,
     bits: c_int,
     maxfix: c_int,
@@ -143,11 +143,11 @@ unsafe fn fixBitErrorsImpl(
     table_ptr: *const errorinfo,
     table_len: c_int,
 ) -> c_int {
-    let bitErrorTable = &*ptr::slice_from_raw_parts(table_ptr, table_len as usize);
+    let bit_error_table = &*ptr::slice_from_raw_parts(table_ptr, table_len as usize);
     let mut bitpos;
-    let syndrome = modesChecksum(msg, bits);
-    let ei = match bitErrorTable.binary_search_by(|e| e.syndrome.cmp(&syndrome)) {
-        Ok(index) => &bitErrorTable[index],
+    let syndrome = mode_s_checksum(msg, bits);
+    let ei = match bit_error_table.binary_search_by(|e| e.syndrome.cmp(&syndrome)) {
+        Ok(index) => &bit_error_table[index],
         Err(_) => return 0, // No syndrome found
     };
 
@@ -187,7 +187,7 @@ unsafe fn fixBitErrorsImpl(
 
 // Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
 // elements, that is assumed to be a power of two
-unsafe fn ICAOCacheHashAddress(mut a: u32) -> u32 {
+unsafe fn icao_cache_hash_address(mut a: u32) -> u32 {
     // The following three rounds wil make sure that every bit affects
     // every output bit with ~ 50% of probability.
     a = (a >> 16 as c_int ^ a).wrapping_mul(0x45d9f3b as c_int as c_uint);
@@ -200,8 +200,8 @@ unsafe fn ICAOCacheHashAddress(mut a: u32) -> u32 {
 // Note that we also add a timestamp so that we can make sure that the
 // entry is only valid for MODES_ICAO_CACHE_TTL seconds.
 //
-unsafe fn addRecentlySeenICAOAddrImpl(this: *mut modes, addr: u32) {
-    let h: u32 = ICAOCacheHashAddress(addr);
+unsafe fn add_recently_seen_icao_addr(this: *mut ModeS, addr: u32) {
+    let h: u32 = icao_cache_hash_address(addr);
     *(*this)
         .icao_cache
         .offset(h.wrapping_mul(2 as c_int as c_uint) as isize) = addr;
@@ -217,8 +217,8 @@ unsafe fn addRecentlySeenICAOAddrImpl(this: *mut modes, addr: u32) {
 // proper checksum (not xored with address) no more than * MODES_ICAO_CACHE_TTL
 // seconds ago. Otherwise returns 0.
 //
-unsafe fn ICAOAddressWasRecentlySeenImpl(this: *const modes, addr: u32) -> c_int {
-    let h: u32 = ICAOCacheHashAddress(addr);
+unsafe fn icao_address_was_recently_seen(this: *const ModeS, addr: u32) -> c_int {
+    let h: u32 = icao_cache_hash_address(addr);
     let a: u32 = *(*this).icao_cache.offset(h.wrapping_mul(2) as isize);
     let t: u32 = *(*this)
         .icao_cache
@@ -240,41 +240,41 @@ unsafe fn ICAOAddressWasRecentlySeenImpl(this: *const modes, addr: u32) -> c_int
 // For more info: http://en.wikipedia.org/wiki/Gillham_code
 //
 #[rustfmt::skip]
-fn decodeID13Field(ID13Field: c_int) -> c_int {
-    let mut hexGillham = 0;
-    if ID13Field & 0x1000 != 0 { hexGillham |= 0x0010 } // Bit 12 = C1
-    if ID13Field & 0x0800 != 0 { hexGillham |= 0x1000 } // Bit 11 = A1
-    if ID13Field & 0x0400 != 0 { hexGillham |= 0x0020 } // Bit 10 = C2
-    if ID13Field & 0x0200 != 0 { hexGillham |= 0x2000 } // Bit  9 = A2
-    if ID13Field & 0x0100 != 0 { hexGillham |= 0x0040 } // Bit  8 = C4
-    if ID13Field & 0x0080 != 0 { hexGillham |= 0x4000 } // Bit  7 = A4
+fn decode_id13_field(id13_field: c_int) -> c_int {
+    let mut hex_gillham = 0;
+    if id13_field & 0x1000 != 0 { hex_gillham |= 0x0010 } // Bit 12 = C1
+    if id13_field & 0x0800 != 0 { hex_gillham |= 0x1000 } // Bit 11 = A1
+    if id13_field & 0x0400 != 0 { hex_gillham |= 0x0020 } // Bit 10 = C2
+    if id13_field & 0x0200 != 0 { hex_gillham |= 0x2000 } // Bit  9 = A2
+    if id13_field & 0x0100 != 0 { hex_gillham |= 0x0040 } // Bit  8 = C4
+    if id13_field & 0x0080 != 0 { hex_gillham |= 0x4000 } // Bit  7 = A4
     // TODO: Find out why bit 6 was commented out in the C code
-    // if (ID13Field & 0x0040) {hexGillham |= 0x0800;}  // Bit  6 = X  or M
-    if ID13Field & 0x0020 != 0 { hexGillham |= 0x0100 } // Bit  5 = B1
-    if ID13Field & 0x0010 != 0 { hexGillham |= 0x0001 } // Bit  4 = D1 or Q
-    if ID13Field & 0x0008 != 0 { hexGillham |= 0x0200 } // Bit  3 = B2
-    if ID13Field & 0x0004 != 0 { hexGillham |= 0x0002 } // Bit  2 = D2
-    if ID13Field & 0x0002 != 0 { hexGillham |= 0x0400 } // Bit  1 = B4
-    if ID13Field & 0x0001 != 0 { hexGillham |= 0x0004 } // Bit  0 = D4
-    hexGillham
+    // if (id13_field & 0x0040) {hex_gillham |= 0x0800;}  // Bit  6 = X  or M
+    if id13_field & 0x0020 != 0 { hex_gillham |= 0x0100 } // Bit  5 = B1
+    if id13_field & 0x0010 != 0 { hex_gillham |= 0x0001 } // Bit  4 = D1 or Q
+    if id13_field & 0x0008 != 0 { hex_gillham |= 0x0200 } // Bit  3 = B2
+    if id13_field & 0x0004 != 0 { hex_gillham |= 0x0002 } // Bit  2 = D2
+    if id13_field & 0x0002 != 0 { hex_gillham |= 0x0400 } // Bit  1 = B4
+    if id13_field & 0x0001 != 0 { hex_gillham |= 0x0004 } // Bit  0 = D4
+    hex_gillham
 }
 
 // Decode the 13 bit AC altitude field (in DF 20 and others).
 // Returns the altitude, and set 'unit' to either MODES_UNIT_METERS or MDOES_UNIT_FEETS.
 //
-unsafe fn decodeAC13Field(AC13Field: c_int, unit: *mut c_int) -> c_int {
-    let m_bit = (AC13Field & 0x40) != 0; // set = meters, clear = feet
-    let q_bit = (AC13Field & 0x10) != 0; // set = 25 ft encoding, clear = Gillham Mode C encoding
+unsafe fn decode_ac13_field(ac13_field: c_int, unit: *mut c_int) -> c_int {
+    let m_bit = (ac13_field & 0x40) != 0; // set = meters, clear = feet
+    let q_bit = (ac13_field & 0x10) != 0; // set = 25 ft encoding, clear = Gillham Mode C encoding
     if !m_bit {
         *unit = MODES_UNIT_FEET;
         if q_bit {
             // N is the 11 bit integer resulting from the removal of bit Q and M
-            let n: c_int = (AC13Field & 0x1f80) >> 2 | (AC13Field & 0x20) >> 1 | AC13Field & 0xf;
+            let n: c_int = (ac13_field & 0x1f80) >> 2 | (ac13_field & 0x20) >> 1 | ac13_field & 0xf;
             // The final altitude is resulting number multiplied by 25, minus 1000.
             n * 25 - 1000
         } else {
             // N is an 11 bit Gillham coded altitude
-            let mut n_0: c_int = ModeAToModeC(decodeID13Field(AC13Field) as c_uint);
+            let mut n_0: c_int = mode_a_to_mode_c(decode_id13_field(ac13_field) as c_uint);
             if n_0 < -12 {
                 n_0 = 0
             }
@@ -289,18 +289,18 @@ unsafe fn decodeAC13Field(AC13Field: c_int, unit: *mut c_int) -> c_int {
 
 // Decode the 12 bit AC altitude field (in DF 17 and others).
 //
-unsafe fn decodeAC12Field(AC12Field: c_int, unit: *mut c_int) -> c_int {
-    let q_bit = (AC12Field & 0x10) != 0; // Bit 48 = Q
+unsafe fn decode_ac12_field(ac12_field: c_int, unit: *mut c_int) -> c_int {
+    let q_bit = (ac12_field & 0x10) != 0; // Bit 48 = Q
     *unit = MODES_UNIT_FEET;
     if q_bit {
         // / N is the 11 bit integer resulting from the removal of bit Q at bit 4
-        let n: c_int = (AC12Field & 0xfe0) >> 1 | AC12Field & 0xf;
+        let n: c_int = (ac12_field & 0xfe0) >> 1 | ac12_field & 0xf;
         // The final altitude is the resulting number multiplied by 25, minus 1000.
         n * 25 - 1000
     } else {
         // Make N a 13 bit Gillham coded altitude by inserting M=0 at bit 6
-        let mut n_0: c_int = (AC12Field & 0xfc0) << 1 | AC12Field & 0x3f;
-        n_0 = ModeAToModeC(decodeID13Field(n_0) as c_uint);
+        let mut n_0: c_int = (ac12_field & 0xfc0) << 1 | ac12_field & 0x3f;
+        n_0 = mode_a_to_mode_c(decode_id13_field(n_0) as c_uint);
         if n_0 < -12 {
             n_0 = 0
         }
@@ -311,7 +311,7 @@ unsafe fn decodeAC12Field(AC12Field: c_int, unit: *mut c_int) -> c_int {
 // FIXME: this function has no test coverage
 // Decode the 7 bit ground movement field PWL exponential style scale
 //
-unsafe fn decodeMovementField(movement: c_int) -> c_int {
+unsafe fn decode_movement_field(movement: c_int) -> c_int {
     // Note: movement codes 0,125,126,127 are all invalid, but they are
     //       trapped before this function is called.
     // FIXME: Capture above in types
@@ -327,12 +327,12 @@ unsafe fn decodeMovementField(movement: c_int) -> c_int {
 }
 
 // Decode a raw Mode S message demodulated as a stream of bytes by detectModeS(),
-// and split it into fields populating a modesMessage structure.
+// and split it into fields populating a ModesMessage structure.
 //
-unsafe fn decodeModesMessageImpl(
-    mut mm: *mut modesMessage,
+unsafe fn decode_mode_s_message(
+    mut mm: *mut ModesMessage,
     msg: *const c_uchar,
-    Modes: *mut modes,
+    mode_s: *mut ModeS,
     bit_errors_ptr: *const errorinfo,
     bit_errors_len: c_int,
 ) {
@@ -344,10 +344,10 @@ unsafe fn decodeModesMessageImpl(
 
     // Get the message type ASAP as other operations depend on this
     (*mm).msgtype = c_int::from(*msg.offset(0)) >> 3; // Downlink Format
-    (*mm).msgbits = modesMessageLenByType((*mm).msgtype);
-    (*mm).crc = modesChecksum(msg, (*mm).msgbits);
+    (*mm).msgbits = mode_s_message_len_by_type((*mm).msgtype);
+    (*mm).crc = mode_s_checksum(msg, (*mm).msgbits);
 
-    if (*mm).crc != 0 && (*Modes).nfix_crc != 0 && ((*mm).msgtype == 17 || (*mm).msgtype == 18) {
+    if (*mm).crc != 0 && (*mode_s).nfix_crc != 0 && ((*mm).msgtype == 17 || (*mm).msgtype == 18) {
         //  if ((mm->crc) && (Modes.nfix_crc) && ((mm->msgtype == 11) || (mm->msgtype == 17))) {
         //
         // Fixing single bit errors in DF-11 is a bit dodgy because we have no way to
@@ -356,13 +356,13 @@ unsafe fn decodeModesMessageImpl(
         // multitude of possible crc solutions, only one of which is correct.
         //
         // We should probably perform some sanity checks on corrected DF-11's before
-        // using the results. Perhaps check the ICAO against known aircraft, and check
+        // using the results. Perhaps check the ICAO against known Aircraft, and check
         // IID against known good IID's. That's a TODO.
         //
-        (*mm).correctedbits = fixBitErrorsImpl(
+        (*mm).correctedbits = fix_bit_errors(
             msg,
             (*mm).msgbits,
-            (*Modes).nfix_crc,
+            (*mode_s).nfix_crc,
             (*mm).corrected.as_mut_ptr(),
             bit_errors_ptr,
             bit_errors_len,
@@ -370,10 +370,10 @@ unsafe fn decodeModesMessageImpl(
 
         // If we correct, validate ICAO addr to help filter birthday paradox solutions.
         if (*mm).correctedbits != 0 {
-            let ulAddr: u32 = ((*msg.offset(1) as c_int) << 16 as c_int
+            let ul_addr: u32 = ((*msg.offset(1) as c_int) << 16 as c_int
                 | (*msg.offset(2) as c_int) << 8 as c_int
                 | *msg.offset(3) as c_int) as u32;
-            if ICAOAddressWasRecentlySeenImpl(Modes, ulAddr) == 0 {
+            if icao_address_was_recently_seen(mode_s, ul_addr) == 0 {
                 (*mm).correctedbits = 0;
             }
         }
@@ -392,11 +392,11 @@ unsafe fn decodeModesMessageImpl(
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
                 // DF 11 : if crc == 0 try to populate our ICAO addresses whitelist.
-                addRecentlySeenICAOAddrImpl(Modes, (*mm).addr);
+                add_recently_seen_icao_addr(mode_s, (*mm).addr);
             } else if (*mm).crc < 80 as c_int as c_uint {
-                (*mm).crcok = ICAOAddressWasRecentlySeenImpl(Modes, (*mm).addr);
+                (*mm).crcok = icao_address_was_recently_seen(mode_s, (*mm).addr);
                 if (*mm).crcok != 0 {
-                    addRecentlySeenICAOAddrImpl(Modes, (*mm).addr);
+                    add_recently_seen_icao_addr(mode_s, (*mm).addr);
                 }
             }
         }
@@ -409,7 +409,7 @@ unsafe fn decodeModesMessageImpl(
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
                 // DF 17 : if crc == 0 try to populate our ICAO addresses whitelist.
-                addRecentlySeenICAOAddrImpl(Modes, (*mm).addr);
+                add_recently_seen_icao_addr(mode_s, (*mm).addr);
             }
         }
         18 => {
@@ -423,7 +423,7 @@ unsafe fn decodeModesMessageImpl(
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
                 // DF 18 : if crc == 0 try to populate our ICAO addresses whitelist.
-                addRecentlySeenICAOAddrImpl(Modes, (*mm).addr);
+                add_recently_seen_icao_addr(mode_s, (*mm).addr);
             }
         }
         _ => {
@@ -431,13 +431,13 @@ unsafe fn decodeModesMessageImpl(
             // Compare the checksum with the whitelist of recently seen ICAO
             // addresses. If it matches one, then declare the message as valid
             (*mm).addr = (*mm).crc;
-            (*mm).crcok = ICAOAddressWasRecentlySeenImpl(Modes, (*mm).addr)
+            (*mm).crcok = icao_address_was_recently_seen(mode_s, (*mm).addr)
         }
     }
 
     // If we're checking CRC and the CRC is invalid, then we can't trust any
     // of the data contents, so save time and give up now.
-    if (*Modes).check_crc != 0 && (*mm).crcok == 0 && (*mm).correctedbits == 0 {
+    if (*mode_s).check_crc != 0 && (*mm).crcok == 0 && (*mm).correctedbits == 0 {
         return;
     }
 
@@ -445,28 +445,28 @@ unsafe fn decodeModesMessageImpl(
     if (*mm).msgtype == 0 as c_int || (*mm).msgtype == 16 as c_int {
         if *msg.offset(0) as c_int & 0x4 as c_int != 0 {
             // VS Bit
-            (*mm).bFlags |= (1 as c_int) << 12 as c_int | (1 as c_int) << 9 as c_int
+            (*mm).b_flags |= (1 as c_int) << 12 as c_int | (1 as c_int) << 9 as c_int
         } else {
-            (*mm).bFlags |= (1 as c_int) << 12 as c_int
+            (*mm).b_flags |= (1 as c_int) << 12 as c_int
         }
     }
 
     // Fields for DF11, DF17
     if (*mm).msgtype == 11 as c_int || (*mm).msgtype == 17 as c_int {
         if (*mm).ca == 4 as c_int {
-            (*mm).bFlags |= (1 as c_int) << 12 as c_int | (1 as c_int) << 9 as c_int
+            (*mm).b_flags |= (1 as c_int) << 12 as c_int | (1 as c_int) << 9 as c_int
         } else if (*mm).ca == 5 as c_int {
-            (*mm).bFlags |= (1 as c_int) << 12 as c_int
+            (*mm).b_flags |= (1 as c_int) << 12 as c_int
         }
     }
 
     // Fields for DF5, DF21 = Gillham encoded Squawk
     if (*mm).msgtype == 5 as c_int || (*mm).msgtype == 21 as c_int {
-        let ID13Field: c_int =
+        let id13field: c_int =
             ((*msg.offset(2) as c_int) << 8 as c_int | *msg.offset(3) as c_int) & 0x1fff as c_int;
-        if ID13Field != 0 {
-            (*mm).bFlags |= (1 as c_int) << 5 as c_int;
-            (*mm).modeA = decodeID13Field(ID13Field)
+        if id13field != 0 {
+            (*mm).b_flags |= (1 as c_int) << 5 as c_int;
+            (*mm).mode_a = decode_id13_field(id13field)
         }
     }
 
@@ -476,12 +476,12 @@ unsafe fn decodeModesMessageImpl(
         || (*mm).msgtype == 16 as c_int
         || (*mm).msgtype == 20 as c_int
     {
-        let AC13Field: c_int =
+        let ac13field: c_int =
             ((*msg.offset(2) as c_int) << 8 as c_int | *msg.offset(3) as c_int) & 0x1fff as c_int;
-        if AC13Field != 0 {
+        if ac13field != 0 {
             // Only attempt to decode if a valid (non zero) altitude is present
-            (*mm).bFlags |= (1 as c_int) << 1 as c_int;
-            (*mm).altitude = decodeAC13Field(AC13Field, &mut (*mm).unit)
+            (*mm).b_flags |= (1 as c_int) << 1 as c_int;
+            (*mm).altitude = decode_ac13_field(ac13field, &mut (*mm).unit)
         }
     }
 
@@ -491,12 +491,12 @@ unsafe fn decodeModesMessageImpl(
         || (*mm).msgtype == 5 as c_int
         || (*mm).msgtype == 21 as c_int
     {
-        (*mm).bFlags |= (1 as c_int) << 13 as c_int; // Flight status for DF4,5,20,21
+        (*mm).b_flags |= (1 as c_int) << 13 as c_int; // Flight status for DF4,5,20,21
         (*mm).fs = *msg.offset(0) as c_int & 7 as c_int;
         if (*mm).fs <= 3 as c_int {
-            (*mm).bFlags |= (1 as c_int) << 12 as c_int;
+            (*mm).b_flags |= (1 as c_int) << 12 as c_int;
             if (*mm).fs & 1 as c_int != 0 {
-                (*mm).bFlags |= (1 as c_int) << 9 as c_int
+                (*mm).b_flags |= (1 as c_int) << 9 as c_int
             }
         }
     }
@@ -517,7 +517,7 @@ unsafe fn decodeModesMessageImpl(
         // Decode the extended squitter message
         if metype >= 1 as c_int && metype <= 4 as c_int {
             // Aircraft Identification and Category
-            (*mm).bFlags |= 1 << 6;
+            (*mm).b_flags |= 1 << 6;
             let mut chars = ((*msg.offset(5) as c_int) << 16
                 | (*msg.offset(6) as c_int) << 8
                 | *msg.offset(7) as c_int) as u32;
@@ -542,7 +542,7 @@ unsafe fn decodeModesMessageImpl(
         } else if metype == 19 as c_int {
             // Airborne Velocity Message
             // Presumably airborne if we get an Airborne Velocity Message
-            (*mm).bFlags |= (1 as c_int) << 12 as c_int;
+            (*mm).b_flags |= (1 as c_int) << 12 as c_int;
             if mesub >= 1 as c_int && mesub <= 4 as c_int {
                 let mut vert_rate: c_int = (*msg.offset(8) as c_int & 0x7 as c_int) << 6 as c_int
                     | *msg.offset(9) as c_int >> 2 as c_int;
@@ -552,7 +552,7 @@ unsafe fn decodeModesMessageImpl(
                         vert_rate = 0 as c_int - vert_rate
                     }
                     (*mm).vert_rate = vert_rate * 64 as c_int;
-                    (*mm).bFlags |= (1 as c_int) << 4 as c_int
+                    (*mm).b_flags |= (1 as c_int) << 4 as c_int
                 }
             }
             if mesub == 1 as c_int || mesub == 2 as c_int {
@@ -569,7 +569,7 @@ unsafe fn decodeModesMessageImpl(
                 }
                 if ew_raw != 0 {
                     // Do East/West
-                    (*mm).bFlags |= (1 as c_int) << 7 as c_int;
+                    (*mm).b_flags |= (1 as c_int) << 7 as c_int;
                     if *msg.offset(5) as c_int & 0x4 as c_int != 0 {
                         ew_vel = 0 as c_int - ew_vel
                     }
@@ -577,7 +577,7 @@ unsafe fn decodeModesMessageImpl(
                 }
                 if ns_raw != 0 {
                     // Do North/South
-                    (*mm).bFlags |= (1 as c_int) << 8 as c_int;
+                    (*mm).b_flags |= (1 as c_int) << 8 as c_int;
                     if *msg.offset(7) as c_int & 0x80 as c_int != 0 {
                         ns_vel = 0 as c_int - ns_vel
                     }
@@ -585,7 +585,7 @@ unsafe fn decodeModesMessageImpl(
                 }
                 if ew_raw != 0 && ns_raw != 0 {
                     // Compute velocity and angle from the two speed components
-                    (*mm).bFlags |= (1 as c_int) << 3 as c_int
+                    (*mm).b_flags |= (1 as c_int) << 3 as c_int
                         | (1 as c_int) << 2 as c_int
                         | (1 as c_int) << 14 as c_int;
                     (*mm).velocity = ((ns_vel * ns_vel + ew_vel * ew_vel) as f64).sqrt() as c_int;
@@ -603,7 +603,7 @@ unsafe fn decodeModesMessageImpl(
                 let mut airspeed: c_int = (*msg.offset(7) as c_int & 0x7f as c_int) << 3 as c_int
                     | *msg.offset(8) as c_int >> 5 as c_int;
                 if airspeed != 0 {
-                    (*mm).bFlags |= (1 as c_int) << 3 as c_int;
+                    (*mm).b_flags |= (1 as c_int) << 3 as c_int;
                     airspeed -= 1;
                     if mesub == 4 as c_int {
                         // If (supersonic) unit is 4 kts
@@ -612,7 +612,7 @@ unsafe fn decodeModesMessageImpl(
                     (*mm).velocity = airspeed
                 }
                 if *msg.offset(5) as c_int & 0x4 as c_int != 0 {
-                    (*mm).bFlags |= (1 as c_int) << 2 as c_int;
+                    (*mm).b_flags |= (1 as c_int) << 2 as c_int;
                     (*mm).heading = ((*msg.offset(5) as c_int & 0x3 as c_int) << 8 as c_int
                         | *msg.offset(6) as c_int)
                         * 45 as c_int
@@ -627,33 +627,33 @@ unsafe fn decodeModesMessageImpl(
             (*mm).raw_longitude = (*msg.offset(8) as c_int & 1 as c_int) << 16 as c_int
                 | (*msg.offset(9) as c_int) << 8 as c_int
                 | *msg.offset(10) as c_int;
-            (*mm).bFlags |= if (*mm).msg[6 as c_int as usize] as c_int & 0x4 as c_int != 0 {
+            (*mm).b_flags |= if (*mm).msg[6 as c_int as usize] as c_int & 0x4 as c_int != 0 {
                 (1 as c_int) << 11 as c_int
             } else {
                 (1 as c_int) << 10 as c_int
             };
             if metype >= 9 as c_int {
-                let AC12Field: c_int = ((*msg.offset(5) as c_int) << 4 as c_int
+                let ac12field: c_int = ((*msg.offset(5) as c_int) << 4 as c_int
                     | *msg.offset(6) as c_int >> 4 as c_int)
                     & 0xfff as c_int;
-                (*mm).bFlags |= (1 as c_int) << 12 as c_int;
-                if AC12Field != 0 {
+                (*mm).b_flags |= (1 as c_int) << 12 as c_int;
+                if ac12field != 0 {
                     // Airborne
                     // Only attempt to decode if a valid (non zero) altitude is present
-                    (*mm).bFlags |= (1 as c_int) << 1 as c_int;
-                    (*mm).altitude = decodeAC12Field(AC12Field, &mut (*mm).unit)
+                    (*mm).b_flags |= (1 as c_int) << 1 as c_int;
+                    (*mm).altitude = decode_ac12_field(ac12field, &mut (*mm).unit)
                 }
             } else {
                 let movement: c_int = ((*msg.offset(4) as c_int) << 4 as c_int
                     | *msg.offset(5) as c_int >> 4 as c_int)
                     & 0x7f as c_int;
-                (*mm).bFlags |= (1 as c_int) << 12 as c_int | (1 as c_int) << 9 as c_int;
+                (*mm).b_flags |= (1 as c_int) << 12 as c_int | (1 as c_int) << 9 as c_int;
                 if movement != 0 && movement < 125 as c_int {
-                    (*mm).bFlags |= (1 as c_int) << 3 as c_int;
-                    (*mm).velocity = decodeMovementField(movement)
+                    (*mm).b_flags |= (1 as c_int) << 3 as c_int;
+                    (*mm).velocity = decode_movement_field(movement)
                 }
                 if *msg.offset(5) as c_int & 0x8 as c_int != 0 {
-                    (*mm).bFlags |= (1 as c_int) << 2 as c_int;
+                    (*mm).b_flags |= (1 as c_int) << 2 as c_int;
                     (*mm).heading = (((*msg.offset(5) as c_int) << 4 as c_int
                         | *msg.offset(6) as c_int >> 4 as c_int)
                         & 0x7f as c_int)
@@ -665,13 +665,13 @@ unsafe fn decodeModesMessageImpl(
             // Test metype squawk field
             if mesub == 7 as c_int {
                 // (see 1090-WP-15-20)
-                let ID13Field_0: c_int = (((*msg.offset(5) as c_int) << 8 as c_int
+                let id13field_0: c_int = (((*msg.offset(5) as c_int) << 8 as c_int
                     | *msg.offset(6) as c_int)
                     & 0xfff1 as c_int)
                     >> 3 as c_int;
-                if ID13Field_0 != 0 {
-                    (*mm).bFlags |= (1 as c_int) << 5 as c_int;
-                    (*mm).modeA = decodeID13Field(ID13Field_0)
+                if id13field_0 != 0 {
+                    (*mm).b_flags |= (1 as c_int) << 5 as c_int;
+                    (*mm).mode_a = decode_id13_field(id13field_0)
                 }
             }
         } else if !(metype == 24 as c_int) {
@@ -679,12 +679,12 @@ unsafe fn decodeModesMessageImpl(
                 // Extended Squitter Aircraft Status
                 if mesub == 1 as c_int {
                     // Emergency status squawk field
-                    let ID13Field_1: c_int = ((*msg.offset(5) as c_int) << 8 as c_int
+                    let id13field_1: c_int = ((*msg.offset(5) as c_int) << 8 as c_int
                         | *msg.offset(6) as c_int)
                         & 0x1fff as c_int;
-                    if ID13Field_1 != 0 {
-                        (*mm).bFlags |= (1 as c_int) << 5 as c_int;
-                        (*mm).modeA = decodeID13Field(ID13Field_1)
+                    if id13field_1 != 0 {
+                        (*mm).b_flags |= (1 as c_int) << 5 as c_int;
+                        (*mm).mode_a = decode_id13_field(id13field_1)
                     }
                 }
             } else if !(metype == 29 as c_int) {
@@ -699,7 +699,7 @@ unsafe fn decodeModesMessageImpl(
     if (*mm).msgtype == 20 as c_int || (*mm).msgtype == 21 as c_int {
         if *msg.offset(4) as c_int == 0x20 as c_int {
             // Aircraft Identification
-            (*mm).bFlags |= (1 as c_int) << 6 as c_int;
+            (*mm).b_flags |= (1 as c_int) << 6 as c_int;
             let mut chars_0 = ((*msg.offset(5) as c_int) << 16 as c_int
                 | (*msg.offset(6) as c_int) << 8 as c_int
                 | *msg.offset(7) as c_int) as u32;
@@ -728,16 +728,16 @@ unsafe fn decodeModesMessageImpl(
 // This function gets a decoded Mode S Message and prints it on the screen
 // in a human readable format.
 //
-fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
+fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
     // Handle only addresses mode first.
-    if Modes.onlyaddr != 0 {
+    if mode_s.onlyaddr != 0 {
         println!("{:06x}", mm.addr);
         return;
         // Enough for --onlyaddr mode
     }
 
     // Show the raw message.
-    unsafe { displayRawMessage(Modes, mm) };
+    unsafe { display_raw_message(mode_s, mm) };
 
     let mut j = 0;
     while j < mm.msgbits / 8 as c_int {
@@ -746,7 +746,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
     }
     println!(";");
 
-    if Modes.raw != 0 {
+    if mode_s.raw != 0 {
         let _ = io::stdout().flush();
         return;
         // Enough for --raw mode
@@ -868,7 +868,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
             "  UM             : {}",
             (mm.msg[1] as c_int & 7 as c_int) << 3 as c_int | mm.msg[2] as c_int >> 5 as c_int
         );
-        println!("  Squawk         : {:04x}", mm.modeA);
+        println!("  Squawk         : {:04x}", mm.mode_a);
         println!("  ICAO Address   : {:06x}", mm.addr);
         if mm.msgtype == 21 as c_int {
             println!("  Comm-B BDS     : {:x}", mm.msg[4] as c_int);
@@ -951,7 +951,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
         println!("  Extended Squitter  Sub : {}", mm.mesub);
         println!(
             "  Extended Squitter  Name: {}",
-            getMEDescription(mm.metype, mm.mesub)
+            get_me_description(mm.metype, mm.mesub)
         );
 
         // Decode the extended squitter message
@@ -968,7 +968,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
             if mm.mesub == 1 as c_int || mm.mesub == 2 as c_int {
                 println!(
                     "    EW status         : {}",
-                    if mm.bFlags & MODES_ACFLAGS_EWSPEED_VALID != 0 {
+                    if mm.b_flags & MODES_ACFLAGS_EWSPEED_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
@@ -977,7 +977,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                 println!("    EW velocity       : {}", mm.ew_velocity);
                 println!(
                     "    NS status         : {}",
-                    if mm.bFlags & MODES_ACFLAGS_NSSPEED_VALID != 0 {
+                    if mm.b_flags & MODES_ACFLAGS_NSSPEED_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
@@ -986,7 +986,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                 println!("    NS velocity       : {}", mm.ns_velocity);
                 println!(
                     "    Vertical status   : {}",
-                    if mm.bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                    if mm.b_flags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
@@ -1000,7 +1000,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
             } else if mm.mesub == 3 as c_int || mm.mesub == 4 as c_int {
                 println!(
                     "    Heading status    : {}",
-                    if mm.bFlags & MODES_ACFLAGS_HEADING_VALID != 0 {
+                    if mm.b_flags & MODES_ACFLAGS_HEADING_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
@@ -1009,7 +1009,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                 println!("    Heading           : {}", mm.heading);
                 println!(
                     "    Airspeed status   : {}",
-                    if mm.bFlags & MODES_ACFLAGS_SPEED_VALID != 0 {
+                    if mm.b_flags & MODES_ACFLAGS_SPEED_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
@@ -1018,7 +1018,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                 println!("    Airspeed          : {}", mm.velocity);
                 println!(
                     "    Vertical status   : {}",
-                    if mm.bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                    if mm.b_flags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
                         "Valid"
                     } else {
                         "Unavailable"
@@ -1054,9 +1054,9 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                 }
             );
             println!("    Altitude : {} feet", mm.altitude);
-            if mm.bFlags & MODES_ACFLAGS_LATLON_VALID != 0 {
-                println!("    Latitude : {:.6}", mm.fLat);
-                println!("    Longitude: {:.6}", mm.fLon);
+            if mm.b_flags & MODES_ACFLAGS_LATLON_VALID != 0 {
+                println!("    Latitude : {:.6}", mm.f_lat);
+                println!("    Longitude: {:.6}", mm.f_lon);
             } else {
                 println!("    Latitude : {} (not decoded)", mm.raw_latitude);
                 println!("    Longitude: {} (not decoded)", mm.raw_longitude);
@@ -1068,7 +1068,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                     "    Emergency State: {}",
                     EMERGENCY_STATES[((mm.msg[5] as c_int & 0xe0 as c_int) >> 5 as c_int) as usize]
                 );
-                println!("    Squawk: {:04x}", mm.modeA);
+                println!("    Squawk: {:04x}", mm.mode_a);
             } else {
                 println!(
                     "    Unrecognized ME subtype: {} subtype: {}",
@@ -1078,7 +1078,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
         } else if mm.metype == 23 as c_int {
             // Test Message
             if mm.mesub == 7 as c_int {
-                println!("    Squawk: {:04x}", mm.modeA);
+                println!("    Squawk: {:04x}", mm.mode_a);
             } else {
                 println!(
                     "    Unrecognized ME subtype: {} subtype: {}",
@@ -1108,7 +1108,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
             println!("  Extended Squitter  Sub : {}", mm.mesub);
             println!(
                 "  Extended Squitter  Name: {}",
-                getMEDescription(mm.metype, mm.mesub)
+                get_me_description(mm.metype, mm.mesub)
             );
 
             // Decode the extended squitter message
@@ -1125,7 +1125,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                 if mm.mesub == 1 as c_int || mm.mesub == 2 as c_int {
                     println!(
                         "    EW status         : {}",
-                        if mm.bFlags & MODES_ACFLAGS_EWSPEED_VALID != 0 {
+                        if mm.b_flags & MODES_ACFLAGS_EWSPEED_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
@@ -1134,7 +1134,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                     println!("    EW velocity       : {}", mm.ew_velocity);
                     println!(
                         "    NS status         : {}",
-                        if mm.bFlags & MODES_ACFLAGS_NSSPEED_VALID != 0 {
+                        if mm.b_flags & MODES_ACFLAGS_NSSPEED_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
@@ -1143,7 +1143,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                     println!("    NS velocity       : {}", mm.ns_velocity);
                     println!(
                         "    Vertical status   : {}",
-                        if mm.bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                        if mm.b_flags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
@@ -1157,7 +1157,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                 } else if mm.mesub == 3 as c_int || mm.mesub == 4 as c_int {
                     println!(
                         "    Heading status    : {}",
-                        if mm.bFlags & MODES_ACFLAGS_HEADING_VALID != 0 {
+                        if mm.b_flags & MODES_ACFLAGS_HEADING_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
@@ -1166,7 +1166,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                     println!("    Heading           : {}", mm.heading);
                     println!(
                         "    Airspeed status   : {}",
-                        if mm.bFlags & MODES_ACFLAGS_SPEED_VALID != 0 {
+                        if mm.b_flags & MODES_ACFLAGS_SPEED_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
@@ -1175,7 +1175,7 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                     println!("    Airspeed          : {}", mm.velocity);
                     println!(
                         "    Vertical status   : {}",
-                        if mm.bFlags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
+                        if mm.b_flags & MODES_ACFLAGS_VERTRATE_VALID != 0 {
                             "Valid"
                         } else {
                             "Unavailable"
@@ -1211,9 +1211,9 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
                     }
                 );
                 println!("    Altitude : {} feet", mm.altitude);
-                if mm.bFlags & MODES_ACFLAGS_LATLON_VALID != 0 {
-                    println!("    Latitude : {}", mm.fLat);
-                    println!("    Longitude: {}", mm.fLon);
+                if mm.b_flags & MODES_ACFLAGS_LATLON_VALID != 0 {
+                    println!("    Latitude : {}", mm.f_lat);
+                    println!("    Longitude: {}", mm.f_lon);
                 } else {
                     println!("    Latitude : {} (not decoded)", mm.raw_latitude);
                     println!("    Longitude: {} (not decoded)", mm.raw_longitude);
@@ -1238,10 +1238,10 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
         // DF 32 is special code we use for Mode A/C
         println!("SSR : Mode A/C Reply.");
         if mm.fs & 0x80 as c_int != 0 {
-            println!("  Mode A : {:04x} IDENT", mm.modeA);
+            println!("  Mode A : {:04x} IDENT", mm.mode_a);
         } else {
-            println!("  Mode A : {:04x}", mm.modeA);
-            if mm.bFlags & MODES_ACFLAGS_ALTITUDE_VALID != 0 {
+            println!("  Mode A : {:04x}", mm.mode_a);
+            if mm.b_flags & MODES_ACFLAGS_ALTITUDE_VALID != 0 {
                 println!("  Mode C : {} feet", mm.altitude);
             }
         }
@@ -1251,13 +1251,13 @@ fn displayModesMessage(Modes: &modes, mm: &modesMessage) {
     println!();
 }
 
-unsafe fn displayRawMessage(Modes: &modes, mm: &modesMessage) {
-    if Modes.mlat != 0 && mm.timestampMsg != 0 {
+unsafe fn display_raw_message(mode_s: &ModeS, mm: &ModesMessage) {
+    if mode_s.mlat != 0 && mm.timestamp_msg != 0 {
         print!("@"); // Provide data to the reader ASAP
-        let pTimeStamp = &mm.timestampMsg as *const u64 as *const c_uchar;
+        let p_time_stamp = &mm.timestamp_msg as *const u64 as *const c_uchar;
         let mut j = 5;
         while j >= 0 {
-            print!("{:02X}", *pTimeStamp.offset(j as isize) as c_int);
+            print!("{:02X}", *p_time_stamp.offset(j as isize) as c_int);
             j -= 1
         }
     } else {
@@ -1315,7 +1315,7 @@ static EMERGENCY_STATES: [&str; 8] = [
     "Reserved",
 ];
 
-fn getMEDescription(metype: c_int, mesub: c_int) -> &'static str {
+fn get_me_description(metype: c_int, mesub: c_int) -> &'static str {
     if metype >= 1 && metype <= 4 {
         "Aircraft Identification and Category"
     } else if metype >= 5 && metype <= 8 {
@@ -1345,7 +1345,7 @@ fn getMEDescription(metype: c_int, mesub: c_int) -> &'static str {
     }
 }
 
-impl modesMessage {
+impl ModesMessage {
     fn flight_number_str(&self) -> &str {
         unsafe {
             CStr::from_ptr(&self.flight as *const c_char)
@@ -1358,15 +1358,15 @@ impl modesMessage {
 // Turn I/Q samples pointed by Modes.data into the magnitude vector
 // pointed by Modes.magnitude.
 //
-pub unsafe fn computeMagnitudeVectorImpl(mut p: *mut u16, Modes: *mut modes) {
-    let mut m: *mut u16 = (*Modes)
+pub unsafe fn compute_magnitude_vector_impl(mut p: *mut u16, mode_s: *mut ModeS) {
+    let mut m: *mut u16 = (*mode_s)
         .magnitude
         .offset((MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES) as isize)
         as *mut u16;
 
     ptr::copy_nonoverlapping(
-        (*Modes).magnitude.offset(MODES_ASYNC_BUF_SAMPLES as isize),
-        (*Modes).magnitude,
+        (*mode_s).magnitude.offset(MODES_ASYNC_BUF_SAMPLES as isize),
+        (*mode_s).magnitude,
         MODES_PREAMBLE_SIZE + MODES_LONG_MSG_SIZE,
     );
 
@@ -1378,7 +1378,7 @@ pub unsafe fn computeMagnitudeVectorImpl(mut p: *mut u16, Modes: *mut modes) {
         p = p.offset(1);
         let fresh4 = m;
         m = m.offset(1);
-        *fresh4 = *(*Modes).maglut.offset(*fresh3 as isize);
+        *fresh4 = *(*mode_s).maglut.offset(*fresh3 as isize);
         j = j.wrapping_add(1)
     }
 }
@@ -1387,20 +1387,20 @@ pub unsafe fn computeMagnitudeVectorImpl(mut p: *mut u16, Modes: *mut modes) {
 // Return  1 if the message is out of phase right-size
 // Return  0 if the message is not particularly out of phase.
 //
-// Note: this function will access pPreamble[-1], so the caller should make sure to
+// Note: this function will access p_preamble[-1], so the caller should make sure to
 // call it only if we are not at the start of the current buffer
 //
-unsafe fn detectOutOfPhase(pPreamble: *const u16) -> c_int {
-    if *pPreamble.offset(3) > *pPreamble.offset(2) / 3 {
+unsafe fn detect_out_of_phase(p_preamble: *const u16) -> c_int {
+    if *p_preamble.offset(3) > *p_preamble.offset(2) / 3 {
         return 1;
     }
-    if *pPreamble.offset(10) > *pPreamble.offset(9) / 3 {
+    if *p_preamble.offset(10) > *p_preamble.offset(9) / 3 {
         return 1;
     }
-    if *pPreamble.offset(6) > *pPreamble.offset(7) / 3 {
+    if *p_preamble.offset(6) > *p_preamble.offset(7) / 3 {
         return -1;
     }
-    if *pPreamble.offset(-1) > *pPreamble.offset(1) / 3 {
+    if *p_preamble.offset(-1) > *p_preamble.offset(1) / 3 {
         return -1;
     }
 
@@ -1420,92 +1420,95 @@ fn clamped_scale(v: u16, scale: u16) -> u16 {
 // modifies the sample value of the *adjacent* sample which will
 // contain some of the energy from the bit we just inspected.
 //
-// pPayload[0] should be the start of the preamble,
-// pPayload[-1 .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] should be accessible.
-// pPayload[MODES_PREAMBLE_SAMPLES .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] will be updated.
-unsafe fn applyPhaseCorrection(pPayload: *mut u16) {
+// p_payload[0] should be the start of the preamble,
+// p_payload[-1 .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] should be accessible.
+// p_payload[MODES_PREAMBLE_SAMPLES .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] will be updated.
+unsafe fn apply_phase_correction(p_payload: *mut u16) {
     // we expect 1 bits at 0, 2, 7, 9
     // and 0 bits at -1, 1, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14
     // use bits -1,6 for early detection (bit 0/7 arrived a little early, our sample period starts after the bit phase so we include some of the next bit)
     // use bits 3,10 for late detection (bit 2/9 arrived a little late, our sample period starts before the bit phase so we include some of the last bit)
 
-    let onTime: u32 = (*pPayload.offset(0) as c_int
-        + *pPayload.offset(2) as c_int
-        + *pPayload.offset(7) as c_int
-        + *pPayload.offset(9) as c_int) as u32;
-    let early: u32 = ((*pPayload.offset(-(1 as c_int) as isize) as c_int
-        + *pPayload.offset(6) as c_int)
+    let on_time: u32 = (*p_payload.offset(0) as c_int
+        + *p_payload.offset(2) as c_int
+        + *p_payload.offset(7) as c_int
+        + *p_payload.offset(9) as c_int) as u32;
+    let early: u32 = ((*p_payload.offset(-(1 as c_int) as isize) as c_int
+        + *p_payload.offset(6) as c_int)
         << 1 as c_int) as u32;
     let late: u32 =
-        ((*pPayload.offset(3) as c_int + *pPayload.offset(10) as c_int) << 1 as c_int) as u32;
+        ((*p_payload.offset(3) as c_int + *p_payload.offset(10) as c_int) << 1 as c_int) as u32;
 
     if early > late {
         // Our sample period starts late and so includes some of the next bit.
-        let scaleUp: u16 = (16384 as c_int as c_uint).wrapping_add(
+        let scale_up: u16 = (16384 as c_int as c_uint).wrapping_add(
             (16384 as c_int as c_uint)
                 .wrapping_mul(early)
-                .wrapping_div(early.wrapping_add(onTime)),
-        ) as u16; // 1 + early / (early+onTime)
-        let scaleDown: u16 = (16384 as c_int as c_uint).wrapping_sub(
+                .wrapping_div(early.wrapping_add(on_time)),
+        ) as u16; // 1 + early / (early+on_time)
+        let scale_down: u16 = (16384 as c_int as c_uint).wrapping_sub(
             (16384 as c_int as c_uint)
                 .wrapping_mul(early)
-                .wrapping_div(early.wrapping_add(onTime)),
-        ) as u16; // 1 - early / (early+onTime)
+                .wrapping_div(early.wrapping_add(on_time)),
+        ) as u16; // 1 - early / (early+on_time)
 
         // trailing bits are 0; final data sample will be a bit low.
-        *pPayload.offset(
+        *p_payload.offset(
             (8 as c_int * 2 as c_int + 14 as c_int * 8 as c_int * 2 as c_int - 1 as c_int) as isize,
         ) = clamped_scale(
-            *pPayload.offset(
+            *p_payload.offset(
                 (8 as c_int * 2 as c_int + 14 as c_int * 8 as c_int * 2 as c_int - 1 as c_int)
                     as isize,
             ),
-            scaleUp,
+            scale_up,
         );
 
         let mut j = MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2;
         while j > MODES_PREAMBLE_SAMPLES {
-            if *pPayload.offset(j as isize) as c_int > *pPayload.offset((j + 1) as isize) as c_int {
+            if *p_payload.offset(j as isize) as c_int > *p_payload.offset((j + 1) as isize) as c_int
+            {
                 // x [1 0] y
                 // x overlapped with the "1" bit and is slightly high
-                *pPayload.offset((j - 1) as isize) =
-                    clamped_scale(*pPayload.offset(j as isize - 1), scaleDown)
+                *p_payload.offset((j - 1) as isize) =
+                    clamped_scale(*p_payload.offset(j as isize - 1), scale_down)
             } else {
                 // x [0 1] y
                 // x overlapped with the "0" bit and is slightly low
-                *pPayload.offset((j - 1) as isize) =
-                    clamped_scale(*pPayload.offset(j as isize - 1), scaleUp)
+                *p_payload.offset((j - 1) as isize) =
+                    clamped_scale(*p_payload.offset(j as isize - 1), scale_up)
             }
             j -= 2
         }
     } else {
         // Our sample period starts early and so includes some of the previous bit.
-        let scaleUp_0: u16 = (16384 as c_int as c_uint).wrapping_add(
+        let scale_up_0: u16 = (16384 as c_int as c_uint).wrapping_add(
             (16384 as c_int as c_uint)
                 .wrapping_mul(late)
-                .wrapping_div(late.wrapping_add(onTime)),
-        ) as u16; // 1 + late / (late+onTime)
-        let scaleDown_0: u16 = (16384 as c_int as c_uint).wrapping_sub(
+                .wrapping_div(late.wrapping_add(on_time)),
+        ) as u16; // 1 + late / (late+on_time)
+        let scale_down_0: u16 = (16384 as c_int as c_uint).wrapping_sub(
             (16384 as c_int as c_uint)
                 .wrapping_mul(late)
-                .wrapping_div(late.wrapping_add(onTime)),
-        ) as u16; // 1 - late / (late+onTime)
+                .wrapping_div(late.wrapping_add(on_time)),
+        ) as u16; // 1 - late / (late+on_time)
 
         // leading bits are 0; first data sample will be a bit low.
-        *pPayload.offset(MODES_PREAMBLE_SAMPLES as isize) =
-            clamped_scale(*pPayload.offset(MODES_PREAMBLE_SAMPLES as isize), scaleUp_0);
+        *p_payload.offset(MODES_PREAMBLE_SAMPLES as isize) = clamped_scale(
+            *p_payload.offset(MODES_PREAMBLE_SAMPLES as isize),
+            scale_up_0,
+        );
         let mut j = MODES_PREAMBLE_SAMPLES;
         while j < MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2 {
-            if *pPayload.offset(j as isize) as c_int > *pPayload.offset(j as isize + 1) as c_int {
+            if *p_payload.offset(j as isize) as c_int > *p_payload.offset(j as isize + 1) as c_int {
                 // x [1 0] y
                 // y overlapped with the "0" bit and is slightly low
-                *pPayload.offset(j as isize + 2) =
-                    clamped_scale(*pPayload.offset(j as isize + 2), scaleUp_0)
+                *p_payload.offset(j as isize + 2) =
+                    clamped_scale(*p_payload.offset(j as isize + 2), scale_up_0)
             } else {
                 // x [0 1] y
                 // y overlapped with the "1" bit and is slightly high
-                *pPayload.offset(j as isize + 2) =
-                    clamped_scale(*pPayload.offset(j as isize + 2), scaleDown_0)
+                *p_payload.offset(j as isize + 2) =
+                    clamped_scale(*p_payload.offset(j as isize + 2), scale_down_0)
             }
             j += 2
         }
@@ -1516,16 +1519,16 @@ unsafe fn applyPhaseCorrection(pPayload: *mut u16) {
 // size 'mlen' bytes. Every detected Mode S message is convert it into a
 // stream of bits and passed to the function to display it.
 //
-pub unsafe fn detectModeSImpl(
+pub unsafe fn detect_mode_s(
     m: *mut u16,
     mlen: u32,
-    Modes: *mut modes,
+    mode_s: *mut ModeS,
     bit_errors_ptr: *const errorinfo,
     bit_errors_len: c_int,
 ) {
-    let mut mm: modesMessage = modesMessage::default();
+    let mut mm: ModesMessage = ModesMessage::default();
     let mut msg = [0; MODES_LONG_MSG_BYTES];
-    let mut pMsg: *mut c_uchar;
+    let mut p_msg: *mut c_uchar;
     let mut aux = [0; MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES + 1];
     let mut use_correction: c_int = 0;
     let mut current_block_183: u64;
@@ -1558,42 +1561,42 @@ pub unsafe fn detectModeSImpl(
         let mut i: c_int;
         let mut errors: c_int;
         let mut errors56: c_int;
-        let mut errorsTy: c_int;
-        let mut pPtr: *mut u16;
-        let mut theByte: u8;
-        let mut theErrs: u8;
+        let mut errors_ty: c_int;
+        let mut p_ptr: *mut u16;
+        let mut the_byte: u8;
+        let mut the_errs: u8;
         let mut msglen: c_int;
         let mut scanlen: c_int;
-        let mut sigStrength: c_int;
+        let mut sig_strength: c_int;
 
-        let pPreamble = m.offset(j as isize);
-        let mut pPayload = m.offset(j as isize + MODES_PREAMBLE_SAMPLES as isize);
+        let p_preamble = m.offset(j as isize);
+        let mut p_payload = m.offset(j as isize + MODES_PREAMBLE_SAMPLES as isize);
 
         // Rather than clear the whole mm structure, just clear the parts which are required. The clear
         // is required for every bit of the input stream, and we don't want to be memset-ing the whole
-        // modesMessage structure two million times per second if we don't have to..
+        // ModesMessage structure two million times per second if we don't have to..
         mm.correctedbits = 0;
         mm.crcok = mm.correctedbits;
-        mm.bFlags = mm.crcok;
+        mm.b_flags = mm.crcok;
 
         if use_correction == 0 {
             // This is not a re-try with phase correction
             // so try to find a new preamble
-            if (*Modes).mode_ac != 0 {
-                let ModeA = detectModeA(pPreamble, &mut mm);
-                if ModeA != 0 {
-                    // We have found a valid ModeA/C in the data
-                    mm.timestampMsg = (*Modes)
-                        .timestampBlk
+            if (*mode_s).mode_ac != 0 {
+                let mode_a = detect_mode_a(p_preamble, &mut mm);
+                if mode_a != 0 {
+                    // We have found a valid mode_a/C in the data
+                    mm.timestamp_msg = (*mode_s)
+                        .timestamp_blk
                         .wrapping_add(j.wrapping_add(1).wrapping_mul(6) as c_ulong);
 
                     // Decode the received message
-                    decodeModeAMessage(&mut mm, ModeA);
+                    decode_mode_a_message(&mut mm, mode_a);
 
                     // Pass data to the next layer
-                    useModesMessage(Modes, &mut mm);
+                    use_modes_message(mode_s, &mut mm);
                     j += MODEAC_MSG_SAMPLES;
-                    (*Modes).stat_ModeAC = (*Modes).stat_ModeAC.wrapping_add(1);
+                    (*mode_s).stat_mode_ac = (*mode_s).stat_mode_ac.wrapping_add(1);
                     current_block_183 = 735147466149431745;
                 } else {
                     current_block_183 = 7175849428784450219;
@@ -1609,21 +1612,21 @@ pub unsafe fn detectModeSImpl(
                 // representing a valid preamble. We don't even investigate further
                 // if this simple test is not passed
                 {
-                    if !(*pPreamble.offset(0) > *pPreamble.offset(1)
-                        && (*pPreamble.offset(1)) < *pPreamble.offset(2)
-                        && *pPreamble.offset(2) > *pPreamble.offset(3)
-                        && (*pPreamble.offset(3)) < *pPreamble.offset(0)
-                        && (*pPreamble.offset(4)) < *pPreamble.offset(0)
-                        && (*pPreamble.offset(5)) < *pPreamble.offset(0)
-                        && (*pPreamble.offset(6)) < *pPreamble.offset(0)
-                        && *pPreamble.offset(7) > *pPreamble.offset(8)
-                        && (*pPreamble.offset(8)) < *pPreamble.offset(9)
-                        && *pPreamble.offset(9) > *pPreamble.offset(6))
+                    if !(*p_preamble.offset(0) > *p_preamble.offset(1)
+                        && (*p_preamble.offset(1)) < *p_preamble.offset(2)
+                        && *p_preamble.offset(2) > *p_preamble.offset(3)
+                        && (*p_preamble.offset(3)) < *p_preamble.offset(0)
+                        && (*p_preamble.offset(4)) < *p_preamble.offset(0)
+                        && (*p_preamble.offset(5)) < *p_preamble.offset(0)
+                        && (*p_preamble.offset(6)) < *p_preamble.offset(0)
+                        && *p_preamble.offset(7) > *p_preamble.offset(8)
+                        && (*p_preamble.offset(8)) < *p_preamble.offset(9)
+                        && *p_preamble.offset(9) > *p_preamble.offset(6))
                     {
-                        if (*Modes).debug & MODES_DEBUG_NOPREAMBLE != 0
-                            && *pPreamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
+                        if (*mode_s).debug & MODES_DEBUG_NOPREAMBLE != 0
+                            && *p_preamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
                         {
-                            dumpRawMessage(
+                            dump_raw_message(
                                 b"Unexpected ratio among first 10 samples\x00".as_ptr()
                                     as *const c_char,
                                 msg.as_mut_ptr(),
@@ -1637,18 +1640,18 @@ pub unsafe fn detectModeSImpl(
                         // of the high spikes level. We don't test bits too near to
                         // the high levels as signals can be out of phase so part of the
                         // energy can be in the near samples
-                        high = (*pPreamble.offset(0) as c_int
-                            + *pPreamble.offset(2) as c_int
-                            + *pPreamble.offset(7) as c_int
-                            + *pPreamble.offset(9) as c_int)
+                        high = (*p_preamble.offset(0) as c_int
+                            + *p_preamble.offset(2) as c_int
+                            + *p_preamble.offset(7) as c_int
+                            + *p_preamble.offset(9) as c_int)
                             / 6 as c_int;
-                        if *pPreamble.offset(4) as c_int >= high
-                            || *pPreamble.offset(5) as c_int >= high
+                        if *p_preamble.offset(4) as c_int >= high
+                            || *p_preamble.offset(5) as c_int >= high
                         {
-                            if (*Modes).debug & MODES_DEBUG_NOPREAMBLE != 0
-                                && *pPreamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
+                            if (*mode_s).debug & MODES_DEBUG_NOPREAMBLE != 0
+                                && *p_preamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
                             {
-                                dumpRawMessage(
+                                dump_raw_message(
                                     b"Too high level in samples between 3 and 6\x00".as_ptr()
                                         as *const c_char,
                                     msg.as_mut_ptr(),
@@ -1657,18 +1660,18 @@ pub unsafe fn detectModeSImpl(
                                 );
                             }
                             current_block_183 = 735147466149431745;
-                        } else if *pPreamble.offset(11) as c_int >= high
-                            || *pPreamble.offset(12) as c_int >= high
-                            || *pPreamble.offset(13) as c_int >= high
-                            || *pPreamble.offset(14) as c_int >= high
+                        } else if *p_preamble.offset(11) as c_int >= high
+                            || *p_preamble.offset(12) as c_int >= high
+                            || *p_preamble.offset(13) as c_int >= high
+                            || *p_preamble.offset(14) as c_int >= high
                         {
                             // Similarly samples in the range 11-14 must be low, as it is the
                             // space between the preamble and real data. Again we don't test
                             // bits too near to high levels, see above
-                            if (*Modes).debug & MODES_DEBUG_NOPREAMBLE != 0
-                                && *pPreamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
+                            if (*mode_s).debug & MODES_DEBUG_NOPREAMBLE != 0
+                                && *p_preamble as c_int > MODES_DEBUG_NOPREAMBLE_LEVEL
                             {
-                                dumpRawMessage(
+                                dump_raw_message(
                                     b"Too high level in samples between 10 and 15\x00".as_ptr()
                                         as *const c_char,
                                     msg.as_mut_ptr(),
@@ -1678,8 +1681,8 @@ pub unsafe fn detectModeSImpl(
                             }
                             current_block_183 = 735147466149431745;
                         } else {
-                            (*Modes).stat_valid_preamble =
-                                (*Modes).stat_valid_preamble.wrapping_add(1);
+                            (*mode_s).stat_valid_preamble =
+                                (*mode_s).stat_valid_preamble.wrapping_add(1);
                             current_block_183 = 6450636197030046351;
                         }
                     }
@@ -1689,10 +1692,10 @@ pub unsafe fn detectModeSImpl(
             // If the previous attempt with this message failed, retry using
             // magnitude correction
             // Make a copy of the Payload, and phase correct the copy
-            ptr::copy_nonoverlapping(pPreamble.offset(-1), aux.as_mut_ptr(), aux.len());
-            applyPhaseCorrection(&mut *aux.as_mut_ptr().offset(1));
-            (*Modes).stat_out_of_phase = (*Modes).stat_out_of_phase.wrapping_add(1);
-            pPayload = aux.as_mut_ptr().offset(1 + MODES_PREAMBLE_SAMPLES as isize) as *mut u16;
+            ptr::copy_nonoverlapping(p_preamble.offset(-1), aux.as_mut_ptr(), aux.len());
+            apply_phase_correction(&mut *aux.as_mut_ptr().offset(1));
+            (*mode_s).stat_out_of_phase = (*mode_s).stat_out_of_phase.wrapping_add(1);
+            p_payload = aux.as_mut_ptr().offset(1 + MODES_PREAMBLE_SAMPLES as isize) as *mut u16;
             current_block_183 = 6450636197030046351;
             // TODO ... apply other kind of corrections
         }
@@ -1701,90 +1704,90 @@ pub unsafe fn detectModeSImpl(
             6450636197030046351 => {
                 // Decode all the next 112 bits, regardless of the actual message
                 // size. We'll check the actual message type later
-                pMsg = &mut *msg.as_mut_ptr().offset(0) as *mut c_uchar;
-                pPtr = pPayload;
-                theByte = 0;
-                theErrs = 0;
-                errorsTy = 0;
+                p_msg = &mut *msg.as_mut_ptr().offset(0) as *mut c_uchar;
+                p_ptr = p_payload;
+                the_byte = 0;
+                the_errs = 0;
+                errors_ty = 0;
                 errors = 0;
                 errors56 = 0;
 
                 // We should have 4 'bits' of 0/1 and 1/0 samples in the preamble,
                 // so include these in the signal strength
-                sigStrength = *pPreamble.offset(0) as c_int - *pPreamble.offset(1) as c_int
-                    + (*pPreamble.offset(2) as c_int - *pPreamble.offset(3) as c_int)
-                    + (*pPreamble.offset(7) as c_int - *pPreamble.offset(6) as c_int)
-                    + (*pPreamble.offset(9) as c_int - *pPreamble.offset(8) as c_int);
+                sig_strength = *p_preamble.offset(0) as c_int - *p_preamble.offset(1) as c_int
+                    + (*p_preamble.offset(2) as c_int - *p_preamble.offset(3) as c_int)
+                    + (*p_preamble.offset(7) as c_int - *p_preamble.offset(6) as c_int)
+                    + (*p_preamble.offset(9) as c_int - *p_preamble.offset(8) as c_int);
 
                 scanlen = MODES_LONG_MSG_BITS;
                 msglen = scanlen;
                 i = 0 as c_int;
                 while i < scanlen {
-                    let fresh5 = pPtr;
-                    pPtr = pPtr.offset(1);
+                    let fresh5 = p_ptr;
+                    p_ptr = p_ptr.offset(1);
                     let a = *fresh5 as u32;
-                    let fresh6 = pPtr;
-                    pPtr = pPtr.offset(1);
+                    let fresh6 = p_ptr;
+                    p_ptr = p_ptr.offset(1);
                     let b = *fresh6 as u32;
                     if a > b {
-                        theByte |= 1;
+                        the_byte |= 1;
                         if i < 56 {
-                            sigStrength =
-                                (sigStrength as c_uint).wrapping_add(a.wrapping_sub(b)) as c_int
+                            sig_strength =
+                                (sig_strength as c_uint).wrapping_add(a.wrapping_sub(b)) as c_int
                         }
                     } else if a < b {
-                        /*theByte |= 0;*/
+                        /*the_byte |= 0;*/
                         if i < 56 {
-                            sigStrength =
-                                (sigStrength as c_uint).wrapping_add(b.wrapping_sub(a)) as c_int
+                            sig_strength =
+                                (sig_strength as c_uint).wrapping_add(b.wrapping_sub(a)) as c_int
                         }
                     } else if i >= MODES_SHORT_MSG_BITS {
                         //(a == b), and we're in the long part of a frame
                         errors += 1
-                    /*theByte |= 0;*/
+                    /*the_byte |= 0;*/
                     } else if i >= 5 {
                         //(a == b), and we're in the short part of a frame
                         scanlen = MODES_LONG_MSG_BITS;
                         errors += 1;
                         errors56 = errors
-                    /*theByte |= 0;*/
+                    /*the_byte |= 0;*/
                     } else if i != 0 {
                         //(a == b), and we're in the message type part of a frame
                         errors += 1;
                         errors56 = errors;
-                        errorsTy = errors56;
-                        theErrs |= 1;
-                    /*theByte |= 0;*/
+                        errors_ty = errors56;
+                        the_errs |= 1;
+                    /*the_byte |= 0;*/
                     } else {
                         //(a == b), and we're in the first bit of the message type part of a frame
                         errors += 1;
                         errors56 = errors;
-                        errorsTy = errors56;
-                        theErrs |= 1;
-                        theByte |= 1;
+                        errors_ty = errors56;
+                        the_errs |= 1;
+                        the_byte |= 1;
                     }
 
                     if i & 7 == 7 {
-                        let fresh7 = pMsg;
-                        pMsg = pMsg.offset(1);
-                        *fresh7 = theByte
+                        let fresh7 = p_msg;
+                        p_msg = p_msg.offset(1);
+                        *fresh7 = the_byte
                     } else if i == 4 as c_int {
-                        msglen = modesMessageLenByType(theByte as c_int);
+                        msglen = mode_s_message_len_by_type(the_byte as c_int);
                         if errors == 0 as c_int {
                             scanlen = msglen
                         }
                     }
 
-                    theByte = ((theByte as c_int) << 1 as c_int) as u8;
+                    the_byte = ((the_byte as c_int) << 1 as c_int) as u8;
                     if i < 7 {
-                        theErrs = theErrs << 1;
+                        the_errs = the_errs << 1;
                     }
 
                     // If we've exceeded the permissible number of encoding errors, abandon ship now
                     if errors > MODES_MSG_ENCODER_ERRS {
                         if i < MODES_SHORT_MSG_BITS {
                             msglen = 0;
-                        } else if errorsTy == 1 && theErrs == 0x80 {
+                        } else if errors_ty == 1 && the_errs == 0x80 {
                             // If we only saw one error in the first bit of the byte of the frame, then it's possible
                             // we guessed wrongly about the value of the bit. We may be able to correct it by guessing
                             // the other way.
@@ -1793,11 +1796,11 @@ pub unsafe fn detectModeSImpl(
                             // Inverting bit 7 will change the message type from a long to a short.
                             // Invert the bit, cross your fingers and carry on.
                             msglen = MODES_SHORT_MSG_BITS; // revert to the number of errors prior to bit 56
-                            msg[0] = (msg[0] as c_int ^ theErrs as c_int) as c_uchar;
-                            errorsTy = 0;
+                            msg[0] = (msg[0] as c_int ^ the_errs as c_int) as c_uchar;
+                            errors_ty = 0;
                             errors = errors56;
-                            (*Modes).stat_DF_Len_Corrected =
-                                (*Modes).stat_DF_Len_Corrected.wrapping_add(1);
+                            (*mode_s).stat_df_len_corrected =
+                                (*mode_s).stat_df_len_corrected.wrapping_add(1);
                         } else if i < MODES_LONG_MSG_BITS {
                             msglen = MODES_SHORT_MSG_BITS;
                             errors = errors56
@@ -1811,7 +1814,7 @@ pub unsafe fn detectModeSImpl(
                 }
 
                 // Ensure msglen is consistent with the DF type
-                i = modesMessageLenByType(msg[0] as c_int >> 3 as c_int);
+                i = mode_s_message_len_by_type(msg[0] as c_int >> 3 as c_int);
                 if msglen > i {
                     msglen = i
                 } else if msglen < i {
@@ -1822,25 +1825,26 @@ pub unsafe fn detectModeSImpl(
                 // Do this by looking to see if the original guess results in the DF type being one of the ICAO defined
                 // message types. If it isn't then toggle the guessed bit and see if this new value is ICAO defined.
                 // if the new value is ICAO defined, then update it in our message.
-                if msglen != 0 && errorsTy == 1 as c_int && theErrs as c_int & 0x78 as c_int != 0 {
+                if msglen != 0 && errors_ty == 1 as c_int && the_errs as c_int & 0x78 as c_int != 0
+                {
                     // We guessed at one (and only one) of the message type bits. See if our guess is "likely"
                     // to be correct by comparing the DF against a list of known good DF's
-                    theByte = msg[0 as c_int as usize]; // One bit per 32 possible DF's. Set bits 0,4,5,11,16.17.18.19,20,21,22,24
-                    let mut thisDF = theByte as c_int >> 3 as c_int & 0x1f as c_int;
-                    let validDFbits = 0x17f0831 as c_int as u32;
-                    let mut thisDFbit = ((1 as c_int) << thisDF) as u32;
-                    if 0 as c_int as c_uint == validDFbits & thisDFbit {
+                    the_byte = msg[0 as c_int as usize]; // One bit per 32 possible DF's. Set bits 0,4,5,11,16.17.18.19,20,21,22,24
+                    let mut this_df = the_byte as c_int >> 3 as c_int & 0x1f as c_int;
+                    let valid_dfbits = 0x17f0831 as c_int as u32;
+                    let mut this_dfbit = ((1 as c_int) << this_df) as u32;
+                    if 0 as c_int as c_uint == valid_dfbits & this_dfbit {
                         // The current DF is not ICAO defined, so is probably an errors.
                         // Toggle the bit we guessed at and see if the resultant DF is more likely
-                        theByte = (theByte as c_int ^ theErrs as c_int) as u8;
-                        thisDF = theByte as c_int >> 3 as c_int & 0x1f as c_int;
-                        thisDFbit = ((1 as c_int) << thisDF) as u32;
+                        the_byte = (the_byte as c_int ^ the_errs as c_int) as u8;
+                        this_df = the_byte as c_int >> 3 as c_int & 0x1f as c_int;
+                        this_dfbit = ((1 as c_int) << this_df) as u32;
                         // if this DF any more likely?
-                        if validDFbits & thisDFbit != 0 {
+                        if valid_dfbits & this_dfbit != 0 {
                             // Yep, more likely, so update the main message
-                            msg[0 as c_int as usize] = theByte;
-                            (*Modes).stat_DF_Type_Corrected =
-                                (*Modes).stat_DF_Type_Corrected.wrapping_add(1);
+                            msg[0 as c_int as usize] = the_byte;
+                            (*mode_s).stat_df_type_corrected =
+                                (*mode_s).stat_df_type_corrected.wrapping_add(1);
                             errors -= 1
                             // decrease the error count so we attempt to use the modified DF.
                         }
@@ -1849,71 +1853,71 @@ pub unsafe fn detectModeSImpl(
 
                 // We measured signal strength over the first 56 bits. Don't forget to add 4
                 // for the preamble samples, so round up and divide by 60.
-                sigStrength = (sigStrength + 29) / 60;
+                sig_strength = (sig_strength + 29) / 60;
 
                 // When we reach this point, if error is small, and the signal strength is large enough
                 // we may have a Mode S message on our hands. It may still be broken and the CRC may not
                 // be correct, but this can be handled by the next layer.
                 if msglen != 0
-                    && sigStrength > MODES_MSG_SQUELCH_LEVEL
+                    && sig_strength > MODES_MSG_SQUELCH_LEVEL
                     && errors <= MODES_MSG_ENCODER_ERRS
                 {
                     // Set initial mm structure details
-                    mm.timestampMsg = (*Modes)
-                        .timestampBlk
+                    mm.timestamp_msg = (*mode_s)
+                        .timestamp_blk
                         .wrapping_add(j.wrapping_mul(6) as c_ulong);
-                    sigStrength = sigStrength + 0x7f >> 8;
-                    mm.signalLevel = u8::try_from(sigStrength).unwrap_or(std::u8::MAX);
+                    sig_strength = sig_strength + 0x7f >> 8;
+                    mm.signal_level = u8::try_from(sig_strength).unwrap_or(std::u8::MAX);
                     mm.phase_corrected = use_correction;
 
                     // Decode the received message
-                    decodeModesMessageImpl(
+                    decode_mode_s_message(
                         &mut mm,
                         msg.as_mut_ptr(),
-                        Modes,
+                        mode_s,
                         bit_errors_ptr,
                         bit_errors_len,
                     );
 
                     // Update statistics
-                    if (*Modes).stats != 0 {
+                    if (*mode_s).stats != 0 {
                         if mm.crcok != 0 || use_correction != 0 || mm.correctedbits != 0 {
                             if use_correction != 0 {
                                 match errors {
                                     0 => {
-                                        (*Modes).stat_ph_demodulated0 =
-                                            (*Modes).stat_ph_demodulated0.wrapping_add(1)
+                                        (*mode_s).stat_ph_demodulated0 =
+                                            (*mode_s).stat_ph_demodulated0.wrapping_add(1)
                                     }
                                     1 => {
-                                        (*Modes).stat_ph_demodulated1 =
-                                            (*Modes).stat_ph_demodulated1.wrapping_add(1)
+                                        (*mode_s).stat_ph_demodulated1 =
+                                            (*mode_s).stat_ph_demodulated1.wrapping_add(1)
                                     }
                                     2 => {
-                                        (*Modes).stat_ph_demodulated2 =
-                                            (*Modes).stat_ph_demodulated2.wrapping_add(1)
+                                        (*mode_s).stat_ph_demodulated2 =
+                                            (*mode_s).stat_ph_demodulated2.wrapping_add(1)
                                     }
                                     _ => {
-                                        (*Modes).stat_ph_demodulated3 =
-                                            (*Modes).stat_ph_demodulated3.wrapping_add(1)
+                                        (*mode_s).stat_ph_demodulated3 =
+                                            (*mode_s).stat_ph_demodulated3.wrapping_add(1)
                                     }
                                 }
                             } else {
                                 match errors {
                                     0 => {
-                                        (*Modes).stat_demodulated0 =
-                                            (*Modes).stat_demodulated0.wrapping_add(1)
+                                        (*mode_s).stat_demodulated0 =
+                                            (*mode_s).stat_demodulated0.wrapping_add(1)
                                     }
                                     1 => {
-                                        (*Modes).stat_demodulated1 =
-                                            (*Modes).stat_demodulated1.wrapping_add(1)
+                                        (*mode_s).stat_demodulated1 =
+                                            (*mode_s).stat_demodulated1.wrapping_add(1)
                                     }
                                     2 => {
-                                        (*Modes).stat_demodulated2 =
-                                            (*Modes).stat_demodulated2.wrapping_add(1)
+                                        (*mode_s).stat_demodulated2 =
+                                            (*mode_s).stat_demodulated2.wrapping_add(1)
                                     }
                                     _ => {
-                                        (*Modes).stat_demodulated3 =
-                                            (*Modes).stat_demodulated3.wrapping_add(1)
+                                        (*mode_s).stat_demodulated3 =
+                                            (*mode_s).stat_demodulated3.wrapping_add(1)
                                     }
                                 }
                             }
@@ -1921,35 +1925,35 @@ pub unsafe fn detectModeSImpl(
                             if mm.correctedbits == 0 as c_int {
                                 if use_correction != 0 {
                                     if mm.crcok != 0 {
-                                        (*Modes).stat_ph_goodcrc =
-                                            (*Modes).stat_ph_goodcrc.wrapping_add(1)
+                                        (*mode_s).stat_ph_goodcrc =
+                                            (*mode_s).stat_ph_goodcrc.wrapping_add(1)
                                     } else {
-                                        (*Modes).stat_ph_badcrc =
-                                            (*Modes).stat_ph_badcrc.wrapping_add(1)
+                                        (*mode_s).stat_ph_badcrc =
+                                            (*mode_s).stat_ph_badcrc.wrapping_add(1)
                                     }
                                 } else if mm.crcok != 0 {
-                                    (*Modes).stat_goodcrc = (*Modes).stat_goodcrc.wrapping_add(1)
+                                    (*mode_s).stat_goodcrc = (*mode_s).stat_goodcrc.wrapping_add(1)
                                 } else {
-                                    (*Modes).stat_badcrc = (*Modes).stat_badcrc.wrapping_add(1)
+                                    (*mode_s).stat_badcrc = (*mode_s).stat_badcrc.wrapping_add(1)
                                 }
                             } else if use_correction != 0 {
-                                (*Modes).stat_ph_badcrc = (*Modes).stat_ph_badcrc.wrapping_add(1);
-                                (*Modes).stat_ph_fixed = (*Modes).stat_ph_fixed.wrapping_add(1);
+                                (*mode_s).stat_ph_badcrc = (*mode_s).stat_ph_badcrc.wrapping_add(1);
+                                (*mode_s).stat_ph_fixed = (*mode_s).stat_ph_fixed.wrapping_add(1);
                                 if mm.correctedbits != 0
                                     && mm.correctedbits <= MODES_MAX_BITERRORS as c_int
                                 {
-                                    (*Modes).stat_ph_bit_fix[(mm.correctedbits - 1) as usize] =
-                                        (*Modes).stat_ph_bit_fix[(mm.correctedbits - 1) as usize]
+                                    (*mode_s).stat_ph_bit_fix[(mm.correctedbits - 1) as usize] =
+                                        (*mode_s).stat_ph_bit_fix[(mm.correctedbits - 1) as usize]
                                             .wrapping_add(1)
                                 }
                             } else {
-                                (*Modes).stat_badcrc = (*Modes).stat_badcrc.wrapping_add(1);
-                                (*Modes).stat_fixed = (*Modes).stat_fixed.wrapping_add(1);
+                                (*mode_s).stat_badcrc = (*mode_s).stat_badcrc.wrapping_add(1);
+                                (*mode_s).stat_fixed = (*mode_s).stat_fixed.wrapping_add(1);
                                 if mm.correctedbits != 0
                                     && mm.correctedbits <= MODES_MAX_BITERRORS as c_int
                                 {
-                                    (*Modes).stat_bit_fix[(mm.correctedbits - 1) as usize] =
-                                        (*Modes).stat_bit_fix[(mm.correctedbits - 1) as usize]
+                                    (*mode_s).stat_bit_fix[(mm.correctedbits - 1) as usize] =
+                                        (*mode_s).stat_bit_fix[(mm.correctedbits - 1) as usize]
                                             .wrapping_add(1)
                                 }
                             }
@@ -1958,28 +1962,28 @@ pub unsafe fn detectModeSImpl(
 
                     // Output debug mode info if needed
                     if use_correction != 0 {
-                        if (*Modes).debug & MODES_DEBUG_DEMOD != 0 {
-                            dumpRawMessage(
+                        if (*mode_s).debug & MODES_DEBUG_DEMOD != 0 {
+                            dump_raw_message(
                                 b"Demodulated with 0 errors\x00".as_ptr() as *const c_char,
                                 msg.as_mut_ptr(),
                                 m,
                                 j,
                             );
-                        } else if (*Modes).debug & MODES_DEBUG_BADCRC != 0
+                        } else if (*mode_s).debug & MODES_DEBUG_BADCRC != 0
                             && mm.msgtype == 17 as c_int
                             && (mm.crcok == 0 || mm.correctedbits != 0 as c_int)
                         {
-                            dumpRawMessage(
+                            dump_raw_message(
                                 b"Decoded with bad CRC\x00".as_ptr() as *const c_char,
                                 msg.as_mut_ptr(),
                                 m,
                                 j,
                             );
-                        } else if (*Modes).debug & MODES_DEBUG_GOODCRC != 0
+                        } else if (*mode_s).debug & MODES_DEBUG_GOODCRC != 0
                             && mm.crcok != 0
                             && mm.correctedbits == 0 as c_int
                         {
-                            dumpRawMessage(
+                            dump_raw_message(
                                 b"Decoded with good CRC\x00".as_ptr() as *const c_char,
                                 msg.as_mut_ptr(),
                                 m,
@@ -1994,10 +1998,10 @@ pub unsafe fn detectModeSImpl(
                     }
 
                     // Pass data to the next layer
-                    useModesMessage(Modes, &mut mm);
-                } else if (*Modes).debug & MODES_DEBUG_DEMODERR != 0 && use_correction != 0 {
+                    use_modes_message(mode_s, &mut mm);
+                } else if (*mode_s).debug & MODES_DEBUG_DEMODERR != 0 && use_correction != 0 {
                     println!("The following message has {} demod errors", errors);
-                    dumpRawMessage(
+                    dump_raw_message(
                         b"Demodulated with errors\x00".as_ptr() as *const c_char,
                         msg.as_mut_ptr(),
                         m,
@@ -2006,12 +2010,12 @@ pub unsafe fn detectModeSImpl(
                 }
 
                 // Retry with phase correction if enabled, necessary and possible.
-                if (*Modes).phase_enhance != 0
+                if (*mode_s).phase_enhance != 0
                     && mm.crcok == 0
                     && mm.correctedbits == 0
                     && use_correction == 0
                     && j != 0
-                    && detectOutOfPhase(pPreamble) != 0
+                    && detect_out_of_phase(p_preamble) != 0
                 {
                     use_correction = 1;
                     j = j.wrapping_sub(1)
@@ -2025,31 +2029,31 @@ pub unsafe fn detectModeSImpl(
     }
 
     // Send any remaining partial raw buffers now
-    if (*Modes).rawOutUsed != 0 || (*Modes).beastOutUsed != 0 {
-        (*Modes).net_output_raw_rate_count += 1;
-        if (*Modes).net_output_raw_rate_count > (*Modes).net_output_raw_rate {
-            if (*Modes).rawOutUsed != 0 {
+    if (*mode_s).raw_out_used != 0 || (*mode_s).beast_out_used != 0 {
+        (*mode_s).net_output_raw_rate_count += 1;
+        if (*mode_s).net_output_raw_rate_count > (*mode_s).net_output_raw_rate {
+            if (*mode_s).raw_out_used != 0 {
                 // modesSendAllClients(
                 //     (*Modes).ros,
-                //     (*Modes).rawOut as *mut c_void,
-                //     (*Modes).rawOutUsed,
+                //     (*Modes).raw_out as *mut c_void,
+                //     (*Modes).raw_out_used,
                 // );
-                (*Modes).rawOutUsed = 0 as c_int
+                (*mode_s).raw_out_used = 0 as c_int
             }
 
-            if (*Modes).beastOutUsed != 0 {
+            if (*mode_s).beast_out_used != 0 {
                 // modesSendAllClients(
                 //     (*Modes).bos,
-                //     (*Modes).beastOut as *mut c_void,
-                //     (*Modes).beastOutUsed,
+                //     (*Modes).beast_out as *mut c_void,
+                //     (*Modes).beast_out_used,
                 // );
-                (*Modes).beastOutUsed = 0 as c_int
+                (*mode_s).beast_out_used = 0 as c_int
             }
-            (*Modes).net_output_raw_rate_count = 0 as c_int
+            (*mode_s).net_output_raw_rate_count = 0 as c_int
         }
-    } else if (*Modes).net != 0 && (*Modes).net_heartbeat_rate != 0 && {
-        (*Modes).net_heartbeat_count += 1;
-        ((*Modes).net_heartbeat_count) > (*Modes).net_heartbeat_rate
+    } else if (*mode_s).net != 0 && (*mode_s).net_heartbeat_rate != 0 && {
+        (*mode_s).net_heartbeat_count += 1;
+        ((*mode_s).net_heartbeat_count) > (*mode_s).net_heartbeat_rate
     } {
         //
         // We haven't received any Mode A/C/S messages for some time. To try and keep any TCP
@@ -2057,18 +2061,18 @@ pub unsafe fn detectModeSImpl(
         // link which will cause an un-recoverable link error if/when a real frame arrives.
         //
         // Fudge up a null message
-        // memset(&mut mm as *mut modesMessage as *mut c_void,
+        // memset(&mut mm as *mut ModesMessage as *mut c_void,
         //        0 as c_int,
-        //        ::std::mem::size_of::<modesMessage>() as c_ulong);
-        mm = modesMessage::default();
+        //        ::std::mem::size_of::<ModesMessage>() as c_ulong);
+        mm = ModesMessage::default();
         mm.msgbits = 7 as c_int * 8 as c_int;
-        mm.timestampMsg = (*Modes).timestampBlk;
+        mm.timestamp_msg = (*mode_s).timestamp_blk;
 
         // Feed output clients
         // modesQueueOutput(Modes, &mut mm);
 
         // Reset the heartbeat counter
-        (*Modes).net_heartbeat_count = 0;
+        (*mode_s).net_heartbeat_count = 0;
     };
 }
 
@@ -2079,31 +2083,31 @@ pub unsafe fn detectModeSImpl(
 // Basically this function passes a raw message to the upper layers for further
 // processing and visualization
 //
-unsafe fn useModesMessage(Modes: *mut modes, mm: *mut modesMessage) {
-    if (*Modes).check_crc == 0 || (*mm).crcok != 0 || (*mm).correctedbits != 0 {
+unsafe fn use_modes_message(mode_s: *mut ModeS, mm: *mut ModesMessage) {
+    if (*mode_s).check_crc == 0 || (*mm).crcok != 0 || (*mm).correctedbits != 0 {
         // not checking, ok or fixed
 
-        // Always track aircraft
-        interactiveReceiveData(&mut (*Modes), mm);
+        // Always track Aircraft
+        interactive_receive_data(&mut (*mode_s), mm);
 
         // In non-interactive non-quiet mode, display messages on standard output
-        if (*Modes).interactive == 0 && (*Modes).quiet == 0 {
-            displayModesMessage(&*Modes, &*mm);
+        if (*mode_s).interactive == 0 && (*mode_s).quiet == 0 {
+            display_modes_message(&*mode_s, &*mm);
         }
 
         // Feed output clients
-        if (*Modes).net != 0 {
+        if (*mode_s).net != 0 {
             // modesQueueOutput(Modes, mm);
         }
 
         // Heartbeat not required whilst we're seeing real messages
-        (*Modes).net_heartbeat_count = 0;
+        (*mode_s).net_heartbeat_count = 0;
     };
 }
 
 // Always positive MOD operation, used for CPR decoding.
 //
-fn cprModFunction(a: c_int, b: c_int) -> c_int {
+fn cpr_mod_function(a: c_int, b: c_int) -> c_int {
     let res = a % b;
     if res < 0 {
         res + b
@@ -2114,7 +2118,7 @@ fn cprModFunction(a: c_int, b: c_int) -> c_int {
 
 // The NL function uses the precomputed table from 1090-WP-9-14
 //
-fn cprNLFunction(mut lat: c_double) -> c_int {
+fn cpr_nl_function(mut lat: c_double) -> c_int {
     if lat < 0.0 {
         // Table is symmetric about the equator
         lat = -lat
@@ -2297,8 +2301,8 @@ fn cprNLFunction(mut lat: c_double) -> c_int {
     };
 }
 
-fn cprNFunction(lat: c_double, fflag: c_int) -> c_int {
-    let nl = cprNLFunction(lat) - if fflag != 0 { 1 } else { 0 };
+fn cpr_n_function(lat: c_double, fflag: c_int) -> c_int {
+    let nl = cpr_nl_function(lat) - if fflag != 0 { 1 } else { 0 };
     if nl < 1 {
         1
     } else {
@@ -2306,18 +2310,18 @@ fn cprNFunction(lat: c_double, fflag: c_int) -> c_int {
     }
 }
 
-fn cprDlonFunction(lat: c_double, fflag: c_int, surface: c_int) -> c_double {
-    (if surface != 0 { 90.0f64 } else { 360.0f64 }) / cprNFunction(lat, fflag) as c_double
+fn cpr_dlon_function(lat: c_double, fflag: c_int, surface: c_int) -> c_double {
+    (if surface != 0 { 90.0f64 } else { 360.0f64 }) / cpr_n_function(lat, fflag) as c_double
 }
 
-pub(crate) unsafe fn decodeCPR(
-    Modes: &modes,
-    a: *mut aircraft,
+pub(crate) unsafe fn decode_cpr(
+    mode_s: &ModeS,
+    a: *mut Aircraft,
     fflag: c_int,
     surface: c_int,
 ) -> c_int {
-    let AirDlat0 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 60.0f64;
-    let AirDlat1 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 59.0f64;
+    let air_dlat0 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 60.0f64;
+    let air_dlat1 = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 59.0f64;
     let lat0 = (*a).even_cprlat as c_double;
     let lat1 = (*a).odd_cprlat as c_double;
     let lon0 = (*a).even_cprlon as c_double;
@@ -2328,10 +2332,10 @@ pub(crate) unsafe fn decodeCPR(
         / 131072 as c_int as c_double
         + 0.5f64)
         .floor() as c_int;
-    let mut rlat0 = AirDlat0
-        * (cprModFunction(j, 60 as c_int) as c_double + lat0 / 131072 as c_int as c_double);
-    let mut rlat1 = AirDlat1
-        * (cprModFunction(j, 59 as c_int) as c_double + lat1 / 131072 as c_int as c_double);
+    let mut rlat0 = air_dlat0
+        * (cpr_mod_function(j, 60 as c_int) as c_double + lat0 / 131072 as c_int as c_double);
+    let mut rlat1 = air_dlat1
+        * (cpr_mod_function(j, 59 as c_int) as c_double + lat1 / 131072 as c_int as c_double);
 
     let now = crate::now() as i64;
     let mut surface_rlat = MODES_USER_LATITUDE_DFLT;
@@ -2339,14 +2343,14 @@ pub(crate) unsafe fn decodeCPR(
 
     if surface != 0 {
         // If we're on the ground, make sure we have a (likely) valid Lat/Lon
-        if (*a).bFlags & MODES_ACFLAGS_LATLON_VALID != 0
-            && ((now - (*a).seenLatLon) as c_int) < Modes.interactive_display_ttl
+        if (*a).b_flags & MODES_ACFLAGS_LATLON_VALID != 0
+            && ((now - (*a).seen_lat_lon) as c_int) < mode_s.interactive_display_ttl
         {
             surface_rlat = (*a).lat;
             surface_rlon = (*a).lon
-        } else if Modes.bUserFlags & MODES_USER_LATLON_VALID != 0 {
-            surface_rlat = Modes.fUserLat;
-            surface_rlon = Modes.fUserLon
+        } else if mode_s.b_user_flags & MODES_USER_LATLON_VALID != 0 {
+            surface_rlat = mode_s.f_user_lat;
+            surface_rlon = mode_s.f_user_lon
         } else {
             // No local reference, give up
             return -1;
@@ -2372,32 +2376,32 @@ pub(crate) unsafe fn decodeCPR(
     }
 
     // Check that both are in the same latitude zone, or abort.
-    if cprNLFunction(rlat0) != cprNLFunction(rlat1) {
+    if cpr_nl_function(rlat0) != cpr_nl_function(rlat1) {
         return -1;
     }
 
     // Compute ni and the Longitude Index "m"
     if fflag != 0 {
         // Use odd packet.
-        let ni = cprNFunction(rlat1, 1 as c_int); // Use even packet.
-        let m = ((lon0 * (cprNLFunction(rlat1) - 1 as c_int) as c_double
-            - lon1 * cprNLFunction(rlat1) as c_double)
+        let ni = cpr_n_function(rlat1, 1 as c_int); // Use even packet.
+        let m = ((lon0 * (cpr_nl_function(rlat1) - 1 as c_int) as c_double
+            - lon1 * cpr_nl_function(rlat1) as c_double)
             / 131072.0f64
             + 0.5f64)
             .floor() as c_int;
-        (*a).lon = cprDlonFunction(rlat1, 1 as c_int, surface)
-            * (cprModFunction(m, ni) as c_double + lon1 / 131072 as c_int as c_double);
+        (*a).lon = cpr_dlon_function(rlat1, 1 as c_int, surface)
+            * (cpr_mod_function(m, ni) as c_double + lon1 / 131072 as c_int as c_double);
         (*a).lat = rlat1
     } else {
         // Use even packet
-        let ni_0 = cprNFunction(rlat0, 0 as c_int);
-        let m_0 = ((lon0 * (cprNLFunction(rlat0) - 1 as c_int) as c_double
-            - lon1 * cprNLFunction(rlat0) as c_double)
+        let ni_0 = cpr_n_function(rlat0, 0 as c_int);
+        let m_0 = ((lon0 * (cpr_nl_function(rlat0) - 1 as c_int) as c_double
+            - lon1 * cpr_nl_function(rlat0) as c_double)
             / 131072 as c_int as c_double
             + 0.5f64)
             .floor() as c_int;
-        (*a).lon = cprDlonFunction(rlat0, 0 as c_int, surface)
-            * (cprModFunction(m_0, ni_0) as c_double + lon0 / 131072 as c_int as c_double);
+        (*a).lon = cpr_dlon_function(rlat0, 0 as c_int, surface)
+            * (cpr_mod_function(m_0, ni_0) as c_double + lon0 / 131072 as c_int as c_double);
         (*a).lat = rlat0
     }
 
@@ -2408,15 +2412,15 @@ pub(crate) unsafe fn decodeCPR(
         (*a).lon -= 360 as c_int as c_double
     }
 
-    (*a).seenLatLon = (*a).seen;
-    (*a).timestampLatLon = (*a).timestamp;
-    (*a).bFlags |= MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK;
+    (*a).seen_lat_lon = (*a).seen;
+    (*a).timestamp_lat_lon = (*a).timestamp;
+    (*a).b_flags |= MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK;
 
     0
 }
 
 // This algorithm comes from:
-// 1090-WP29-07-Draft_CPR101 (which also defines decodeCPR() )
+// 1090-WP29-07-Draft_CPR101 (which also defines decode_cpr() )
 //
 // There is an error in this document related to CPR relative decode.
 // Should use trunc() rather than the floor() function in Eq 38 and related for deltaZI.
@@ -2425,14 +2429,14 @@ pub(crate) unsafe fn decodeCPR(
 // Note:   text of document describes trunc() functionality for deltaZI calculation
 //         but the formulae use floor().
 //
-pub(crate) unsafe fn decodeCPRrelative(
-    Modes: &modes,
-    a: *mut aircraft,
+pub(crate) unsafe fn decode_cpr_relative(
+    mode_s: &ModeS,
+    a: *mut Aircraft,
     fflag: c_int,
     surface: c_int,
 ) -> c_int {
-    let AirDlat: c_double;
-    let AirDlon: c_double;
+    let air_dlat: c_double;
+    let air_dlon: c_double;
     let lat: c_double;
     let lon: c_double;
     let lonr: c_double;
@@ -2442,14 +2446,14 @@ pub(crate) unsafe fn decodeCPRrelative(
     let j: c_int;
     let m: c_int;
 
-    if (*a).bFlags & MODES_ACFLAGS_LATLON_REL_OK != 0 {
-        // Ok to try aircraft relative first
+    if (*a).b_flags & MODES_ACFLAGS_LATLON_REL_OK != 0 {
+        // Ok to try Aircraft relative first
         latr = (*a).lat;
         lonr = (*a).lon
-    } else if Modes.bUserFlags & MODES_USER_LATLON_VALID != 0 {
+    } else if mode_s.b_user_flags & MODES_USER_LATLON_VALID != 0 {
         // Try ground station relative next
-        latr = Modes.fUserLat;
-        lonr = Modes.fUserLon
+        latr = mode_s.f_user_lat;
+        lonr = mode_s.f_user_lon
     } else {
         // Exit with error - can't do relative if we don't have ref.
         return -1;
@@ -2457,22 +2461,22 @@ pub(crate) unsafe fn decodeCPRrelative(
 
     if fflag != 0 {
         // odd
-        AirDlat = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 59.0f64;
+        air_dlat = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 59.0f64;
         lat = (*a).odd_cprlat as c_double;
         lon = (*a).odd_cprlon as c_double
     } else {
         // even
-        AirDlat = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 60.0f64;
+        air_dlat = (if surface != 0 { 90.0f64 } else { 360.0f64 }) / 60.0f64;
         lat = (*a).even_cprlat as c_double;
         lon = (*a).even_cprlon as c_double
     }
 
     // Compute the Latitude Index "j"
-    j = ((latr / AirDlat).floor()
-        + (0.5f64 + cprModFunction(latr as c_int, AirDlat as c_int) as c_double / AirDlat
+    j = ((latr / air_dlat).floor()
+        + (0.5f64 + cpr_mod_function(latr as c_int, air_dlat as c_int) as c_double / air_dlat
             - lat / 131072 as c_int as c_double)
             .trunc()) as c_int;
-    rlat = AirDlat * (j as c_double + lat / 131072 as c_int as c_double);
+    rlat = air_dlat * (j as c_double + lat / 131072 as c_int as c_double);
     if rlat >= 270 as c_int as c_double {
         rlat -= 360 as c_int as c_double
     }
@@ -2481,48 +2485,48 @@ pub(crate) unsafe fn decodeCPRrelative(
     if rlat < -(90 as c_int) as c_double || rlat > 90 as c_int as c_double {
         // This will cause a quick exit next time if no global has been done
         // Time to give up - Latitude error
-        (*a).bFlags &= !MODES_ACFLAGS_LATLON_REL_OK;
+        (*a).b_flags &= !MODES_ACFLAGS_LATLON_REL_OK;
         return -1;
     }
 
     // Check to see that answer is reasonable - ie no more than 1/2 cell away
-    if (rlat - (*a).lat).abs() > AirDlat / 2 as c_int as c_double {
+    if (rlat - (*a).lat).abs() > air_dlat / 2 as c_int as c_double {
         // This will cause a quick exit next time if no global has been done
         // Time to give up - Latitude error
-        (*a).bFlags &= !MODES_ACFLAGS_LATLON_REL_OK;
+        (*a).b_flags &= !MODES_ACFLAGS_LATLON_REL_OK;
         return -1;
     }
 
     // Compute the Longitude Index "m"
-    AirDlon = cprDlonFunction(rlat, fflag, surface);
-    m = ((lonr / AirDlon).floor()
-        + (0.5f64 + cprModFunction(lonr as c_int, AirDlon as c_int) as c_double / AirDlon
+    air_dlon = cpr_dlon_function(rlat, fflag, surface);
+    m = ((lonr / air_dlon).floor()
+        + (0.5f64 + cpr_mod_function(lonr as c_int, air_dlon as c_int) as c_double / air_dlon
             - lon / 131072 as c_int as c_double)
             .trunc()) as c_int;
-    rlon = AirDlon * (m as c_double + lon / 131072 as c_int as c_double);
+    rlon = air_dlon * (m as c_double + lon / 131072 as c_int as c_double);
     if rlon > 180 as c_int as c_double {
         rlon -= 360 as c_int as c_double
     }
 
     // Check to see that answer is reasonable - ie no more than 1/2 cell away
-    if (rlon - (*a).lon).abs() > AirDlon / 2 as c_int as c_double {
+    if (rlon - (*a).lon).abs() > air_dlon / 2 as c_int as c_double {
         // This will cause a quick exit next time if no global has been done
         // Time to give up - Longitude error
-        (*a).bFlags &= !MODES_ACFLAGS_LATLON_REL_OK;
+        (*a).b_flags &= !MODES_ACFLAGS_LATLON_REL_OK;
         return -1;
     }
 
     (*a).lat = rlat;
     (*a).lon = rlon;
 
-    (*a).seenLatLon = (*a).seen;
-    (*a).timestampLatLon = (*a).timestamp;
-    (*a).bFlags |= MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK;
+    (*a).seen_lat_lon = (*a).seen;
+    (*a).timestamp_lat_lon = (*a).timestamp;
+    (*a).b_flags |= MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK;
 
     0
 }
 
-fn dumpRawMessage(descr: *const c_char, _msg: *mut c_uchar, _m: *mut u16, _offset: u32) {
+fn dump_raw_message(descr: *const c_char, _msg: *mut c_uchar, _m: *mut u16, _offset: u32) {
     // printf("\n--- %s\n    ", descr);
     // for (j = 0; j < MODES_LONG_MSG_BYTES; j++) {
     //     printf("%02x",msg[j]);
@@ -2534,5 +2538,5 @@ fn dumpRawMessage(descr: *const c_char, _msg: *mut c_uchar, _m: *mut u16, _offse
     let desc = unsafe { CStr::from_ptr(descr) }
         .to_str()
         .unwrap_or("{invalid}");
-    eprintln!("dumpRawMessage: {}", desc);
+    eprintln!("dump_raw_message: {}", desc);
 }
