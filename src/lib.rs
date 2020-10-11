@@ -363,7 +363,7 @@ fn cmp_errorinfo(e0: &ErrorInfo, e1: &ErrorInfo) -> Ordering {
 
 // TODO: Can this be made a const fn?
 // Compute the table of all syndromes for 1-bit and 2-bit error vectors
-pub unsafe fn modes_init_error_info(bit_error_table: &mut [ErrorInfo], nfix_crc: c_int) {
+pub fn modes_init_error_info(bit_error_table: &mut [ErrorInfo], nfix_crc: c_int) {
     let mut msg: [c_uchar; 14] = [0; MODES_LONG_MSG_BYTES as usize];
     let mut j: c_int;
     let mut n: c_int = 0;
@@ -546,7 +546,7 @@ pub fn modes_init() -> (ModeS, [ErrorInfo; NERRORINFO]) {
     Box::into_raw(maglut);
 
     // Prepare error correction tables
-    unsafe { modes_init_error_info(&mut bit_error_table, state.nfix_crc) };
+    modes_init_error_info(&mut bit_error_table, state.nfix_crc);
 
     (state, bit_error_table)
 }
@@ -563,7 +563,7 @@ mod tests {
             pos: [0; 2],
         }; NERRORINFO];
         let nfix_crc_agressive = 2; // TODO: test with 1 and 2
-        unsafe { modes_init_error_info(&mut bit_error_table, nfix_crc_agressive) };
+        modes_init_error_info(&mut bit_error_table, nfix_crc_agressive);
 
         // Test code: report if any syndrome appears at least twice. In this
         // case the correction cannot be done without ambiguity.
