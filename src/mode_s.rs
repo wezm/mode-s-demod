@@ -1328,7 +1328,7 @@ impl ModesMessage {
 // Turn I/Q samples pointed by Modes.data into the magnitude vector
 // pointed by Modes.magnitude.
 //
-pub unsafe fn compute_magnitude_vector_impl(mut p: *mut u16, mode_s: *mut ModeS) {
+pub unsafe fn compute_magnitude_vector(mut p: *mut u16, mode_s: *mut ModeS) {
     let mut m: *mut u16 = (*mode_s)
         .magnitude
         .as_mut_ptr()

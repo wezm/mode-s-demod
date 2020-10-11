@@ -9,7 +9,7 @@ mod mode_ac;
 mod mode_s;
 
 use mode_s::mode_s_checksum;
-pub use mode_s::{compute_magnitude_vector_impl, detect_mode_s, errorinfo};
+pub use mode_s::{compute_magnitude_vector, detect_mode_s, errorinfo};
 
 pub const MODES_NET_SNDBUF_MAX: c_int = 7;
 
