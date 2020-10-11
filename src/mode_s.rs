@@ -1,5 +1,6 @@
 // ===================== Mode S detection and decoding  ===================
 
+use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::ffi::CStr;
 use std::io::Write;
@@ -1181,16 +1182,24 @@ fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
 }
 
 unsafe fn display_raw_message(mode_s: &ModeS, mm: &ModesMessage) {
+    print!("{}", format_raw_message(mode_s, mm));
+}
+
+unsafe fn format_raw_message(mode_s: &ModeS, mm: &ModesMessage) -> Cow<'static, str> {
     if mode_s.mlat != 0 && mm.timestamp_msg != 0 {
-        print!("@"); // Provide data to the reader ASAP
+        let mut s = String::from("@");
         let p_time_stamp = &mm.timestamp_msg as *const u64 as *const c_uchar;
         let mut j = 5;
         while j >= 0 {
-            print!("{:02X}", *p_time_stamp.offset(j as isize) as c_int);
+            s.push_str(&format!(
+                "{:02X}",
+                *p_time_stamp.offset(j as isize) as c_int
+            ));
             j -= 1
         }
+        Cow::from(s)
     } else {
-        print!("*");
+        Cow::from("*")
     }
 }
 
@@ -2432,4 +2441,38 @@ fn dump_raw_message(descr: *const c_char, _msg: *mut c_uchar, _m: *const u16, _o
         .to_str()
         .unwrap_or("{invalid}");
     eprintln!("dump_raw_message: {}", desc);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_raw_message_at() {
+        let mode_s = ModeS {
+            mlat: 1,
+            ..ModeS::default()
+        };
+        let mm = ModesMessage {
+            timestamp_msg: 0xABCDEF12,
+            ..ModesMessage::default()
+        };
+        assert_eq!(
+            &unsafe { format_raw_message(&mode_s, &mm) },
+            "@0000ABCDEF12"
+        );
+    }
+
+    #[test]
+    fn test_format_raw_message_star() {
+        let mode_s = ModeS {
+            mlat: 0,
+            ..ModeS::default()
+        };
+        let mm = ModesMessage {
+            timestamp_msg: 0xABCDEF12,
+            ..ModesMessage::default()
+        };
+        assert_eq!(&unsafe { format_raw_message(&mode_s, &mm) }, "*");
+    }
 }
