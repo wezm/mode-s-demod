@@ -215,10 +215,10 @@ unsafe fn add_recently_seen_icao_addr(this: *mut ModeS, addr: u32) {
 // proper checksum (not xored with address) no more than * MODES_ICAO_CACHE_TTL
 // seconds ago. Otherwise returns 0.
 //
-unsafe fn icao_address_was_recently_seen(this: *const ModeS, addr: u32) -> c_int {
+unsafe fn icao_address_was_recently_seen(this: &ModeS, addr: u32) -> c_int {
     let h: u32 = icao_cache_hash_address(addr);
-    let a: u32 = *(*this).icao_cache.offset(h.wrapping_mul(2) as isize);
-    let t: u32 = *(*this)
+    let a: u32 = *this.icao_cache.offset(h.wrapping_mul(2) as isize);
+    let t: u32 = *this
         .icao_cache
         .offset(h.wrapping_mul(2).wrapping_add(1) as isize);
     let tn = crate::now();
@@ -370,7 +370,7 @@ unsafe fn decode_mode_s_message(
             let ul_addr: u32 = ((*msg.offset(1) as c_int) << 16 as c_int
                 | (*msg.offset(2) as c_int) << 8 as c_int
                 | *msg.offset(3) as c_int) as u32;
-            if icao_address_was_recently_seen(mode_s, ul_addr) == 0 {
+            if icao_address_was_recently_seen(&(*mode_s), ul_addr) == 0 {
                 (*mm).correctedbits = 0;
             }
         }
@@ -391,7 +391,7 @@ unsafe fn decode_mode_s_message(
                 // DF 11 : if crc == 0 try to populate our ICAO addresses whitelist.
                 add_recently_seen_icao_addr(mode_s, (*mm).addr);
             } else if (*mm).crc < 80 as c_int as c_uint {
-                (*mm).crcok = icao_address_was_recently_seen(mode_s, (*mm).addr);
+                (*mm).crcok = icao_address_was_recently_seen(&(*mode_s), (*mm).addr);
                 if (*mm).crcok != 0 {
                     add_recently_seen_icao_addr(mode_s, (*mm).addr);
                 }
@@ -428,7 +428,7 @@ unsafe fn decode_mode_s_message(
             // Compare the checksum with the whitelist of recently seen ICAO
             // addresses. If it matches one, then declare the message as valid
             (*mm).addr = (*mm).crc;
-            (*mm).crcok = icao_address_was_recently_seen(mode_s, (*mm).addr)
+            (*mm).crcok = icao_address_was_recently_seen(&(*mode_s), (*mm).addr)
         }
     }
 
