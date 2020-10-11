@@ -1362,20 +1362,20 @@ pub unsafe fn compute_magnitude_vector_impl(mut p: *mut u16, mode_s: *mut ModeS)
 // Return  1 if the message is out of phase right-size
 // Return  0 if the message is not particularly out of phase.
 //
-// Note: this function will access p_preamble[-1], so the caller should make sure to
-// call it only if we are not at the start of the current buffer
+// Note: this function assumes that preamble starts one sample before the current sample, so all
+// offsets are +1. Previously the C code took a pointer and accessed p_preamble[-1].
 //
-unsafe fn detect_out_of_phase(p_preamble: *const u16) -> c_int {
-    if *p_preamble.offset(3) > *p_preamble.offset(2) / 3 {
+fn detect_out_of_phase(preamble: &[u16]) -> c_int {
+    if preamble[4] > preamble[3] / 3 {
         return 1;
     }
-    if *p_preamble.offset(10) > *p_preamble.offset(9) / 3 {
+    if preamble[11] > preamble[10] / 3 {
         return 1;
     }
-    if *p_preamble.offset(6) > *p_preamble.offset(7) / 3 {
+    if preamble[7] > preamble[8] / 3 {
         return -1;
     }
-    if *p_preamble.offset(-1) > *p_preamble.offset(1) / 3 {
+    if preamble[0] > preamble[2] / 3 {
         return -1;
     }
 
@@ -1983,10 +1983,15 @@ pub unsafe fn detect_mode_s(
                     && mm.correctedbits == 0
                     && use_correction == 0
                     && j != 0
-                    && detect_out_of_phase(preamble.as_ptr()) != 0
                 {
-                    use_correction = 1;
-                    j = j.wrapping_sub(1)
+                    // FIXME: This is terrible (j - 1 business)
+                    let src = &m_slice[usize::try_from(j - 1).unwrap()..];
+                    if detect_out_of_phase(src) != 0 {
+                        use_correction = 1;
+                        j = j.wrapping_sub(1)
+                    } else {
+                        use_correction = 0;
+                    }
                 } else {
                     use_correction = 0;
                 }
