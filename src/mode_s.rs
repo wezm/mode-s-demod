@@ -81,8 +81,8 @@ const MODES_CHECKSUM_TABLE: [u32; 112] = [
 #[repr(C)]
 pub struct ErrorInfo {
     pub syndrome: u32,
-    pub bits: c_int,
-    pub pos: [c_int; 2],
+    pub bits: u8,
+    pub pos: [i8; 2],
 }
 
 // TODO: capture the size of the message in a type. E.g. enum Message { Short(7 bytes), Long(14 bytes) }
@@ -141,8 +141,9 @@ fn mode_s_message_len_by_type(type_: c_int) -> c_int {
 // Return number of fixed bits.
 //
 fn fix_bit_errors(mm: &mut ModesMessage, maxfix: c_int, bit_error_table: &[ErrorInfo]) {
-    let bits = mm.msgbits;
-    let syndrome = mode_s_checksum(mm.msg, bits);
+    let bits = i8::try_from(mm.msgbits).unwrap();
+    let maxfix = u8::try_from(maxfix).unwrap();
+    let syndrome = mode_s_checksum(mm.msg, mm.msgbits);
     let ei = match bit_error_table.binary_search_by(|e| e.syndrome.cmp(&syndrome)) {
         Ok(index) => &bit_error_table[index],
         Err(_) => {
@@ -162,30 +163,29 @@ fn fix_bit_errors(mm: &mut ModesMessage, maxfix: c_int, bit_error_table: &[Error
         }
 
         // Check that all bit positions lie inside the message length
-        let offset = MODES_LONG_MSG_BITS - bits;
-        let mut i = 0 as c_int;
+        let offset = i8::try_from(MODES_LONG_MSG_BITS).unwrap() - bits;
+        let mut i = 0;
         while i < ei.bits {
             bitpos = ei.pos[i as usize] - offset;
-            if bitpos < 0 as c_int || bitpos >= bits {
+            if bitpos < 0 || bitpos >= bits {
                 return 0 as c_int;
             }
             i += 1
         }
 
         // Fix the bits
-        let mut res = 0 as c_int;
+        let mut res = 0;
         i = res;
         while i < ei.bits {
             bitpos = ei.pos[i as usize] - offset;
             let ref mut fresh1 = mm.msg[(bitpos >> 3) as usize];
-            *fresh1 =
-                (*fresh1 as c_int ^ (1 as c_int) << 7 as c_int - (bitpos & 7 as c_int)) as c_uchar;
+            *fresh1 ^= 1 << 7 - (bitpos & 7);
             let fresh2 = res;
             res = res + 1;
             mm.corrected[fresh2 as usize] = bitpos as c_char;
             i += 1
         }
-        return res;
+        return c_int::from(res);
     })();
 }
 

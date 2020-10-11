@@ -367,45 +367,45 @@ pub fn modes_init_error_info(nfix_crc: c_int) -> [ErrorInfo; NERRORINFO] {
     let mut bit_error_table = [ErrorInfo::default(); NERRORINFO];
 
     let mut msg: [c_uchar; 14] = [0; MODES_LONG_MSG_BYTES as usize];
-    let mut j: c_int;
+    let mut j: u8;
     let mut n: c_int = 0;
     let mut crc: u32;
 
     // Add all possible single and double bit errors
     // don't include errors in first 5 bits (DF type)
-    let mut i = 5 as c_int;
-    while i < MODES_LONG_MSG_BITS {
-        let bytepos0: c_int = i >> 3 as c_int;
-        let mask0: c_int = (1 as c_int) << 7 as c_int - (i & 7 as c_int);
+    let mut i = 5u8;
+    while c_int::from(i) < MODES_LONG_MSG_BITS {
+        let bytepos0 = i >> 3;
+        let mask0: u8 = 1 << 7 - (i & 7);
         // revert error0
-        msg[bytepos0 as usize] = (msg[bytepos0 as usize] as c_int ^ mask0) as c_uchar; // create error0
+        msg[usize::from(bytepos0)] ^= mask0; // create error0
         crc = mode_s_checksum(msg, MODES_LONG_MSG_BITS); // single bit error case
         bit_error_table[n as usize].syndrome = crc;
-        bit_error_table[n as usize].bits = 1 as c_int;
-        bit_error_table[n as usize].pos[0 as c_int as usize] = i;
-        bit_error_table[n as usize].pos[1 as c_int as usize] = -(1 as c_int);
-        n += 1 as c_int;
-        if nfix_crc > 1 as c_int {
-            j = i + 1 as c_int;
-            while j < MODES_LONG_MSG_BITS {
-                let bytepos1: c_int = j >> 3 as c_int;
-                let mask1: c_int = (1 as c_int) << 7 as c_int - (j & 7 as c_int);
+        bit_error_table[n as usize].bits = 1;
+        bit_error_table[n as usize].pos[0] = i8::try_from(i).unwrap();
+        bit_error_table[n as usize].pos[1] = -1;
+        n += 1;
+        if nfix_crc > 1 {
+            j = i + 1;
+            while c_int::from(j) < MODES_LONG_MSG_BITS {
+                let bytepos1 = j >> 3;
+                let mask1: u8 = 1 << 7 - (j & 7);
                 // revert error1
-                msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar; // create error1
+                msg[bytepos1 as usize] ^= mask1; // create error1
                 crc = mode_s_checksum(msg, MODES_LONG_MSG_BITS); // two bit error case
                 if n >= bit_error_table.len() as c_int {
                     break;
                 }
                 bit_error_table[n as usize].syndrome = crc;
-                bit_error_table[n as usize].bits = 2 as c_int;
-                bit_error_table[n as usize].pos[0 as c_int as usize] = i;
-                bit_error_table[n as usize].pos[1 as c_int as usize] = j;
-                n += 1 as c_int;
-                msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar;
+                bit_error_table[n as usize].bits = 2;
+                bit_error_table[n as usize].pos[0] = i8::try_from(i).unwrap();
+                bit_error_table[n as usize].pos[1] = i8::try_from(j).unwrap();
+                n += 1;
+                msg[usize::from(bytepos1)] ^= mask1;
                 j += 1
             }
         }
-        msg[bytepos0 as usize] = (msg[bytepos0 as usize] as c_int ^ mask0) as c_uchar;
+        msg[usize::from(bytepos0)] ^= mask0;
         i += 1
     }
 
@@ -603,5 +603,10 @@ mod tests {
     #[test]
     fn test_fix_bit_errors() {
         // TODO: Port commented out fixBitErrors test code from mode_s.c
+    }
+
+    #[test]
+    fn test_size_of_error_info() {
+        eprintln!("{}", mem::size_of::<ErrorInfo>() * NERRORINFO);
     }
 }
