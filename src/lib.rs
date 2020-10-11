@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::os::raw::{c_char, c_double, c_int, c_long, c_uchar, c_uint};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 use std::{fmt, mem, ptr, time};
 
 mod interactive;
@@ -190,7 +190,7 @@ pub struct ModeS {
 }
 
 struct ICAOCache {
-    cache: Box<[u32; MODES_ICAO_CACHE_LEN as usize * 2]>,
+    cache: Box<[(u32, Instant); MODES_ICAO_CACHE_LEN as usize]>,
 }
 
 #[derive(Clone, Default)]
@@ -254,8 +254,9 @@ impl fmt::Display for Altitude {
 
 impl ICAOCache {
     fn new() -> Self {
+        let now = Instant::now();
         ICAOCache {
-            cache: Box::new([0u32; MODES_ICAO_CACHE_LEN as usize * 2]),
+            cache: Box::new([(0u32, now); MODES_ICAO_CACHE_LEN as usize]),
         }
     }
 
@@ -276,13 +277,7 @@ impl ICAOCache {
     //
     fn add_recently_seen_addr(&mut self, addr: u32) {
         let h: u32 = Self::icao_cache_hash_address(addr);
-
-        // Add addr
-        self.cache[h.wrapping_mul(2) as usize] = addr;
-
-        // Add timestamp
-        let now = crate::now();
-        self.cache[h.wrapping_mul(2).wrapping_add(1) as usize] = now as u32; // FIXME: change to 64-bit time
+        self.cache[h as usize] = (addr, Instant::now());
     }
 
     // Returns 1 if the specified ICAO address was seen in a DF format with
@@ -291,10 +286,10 @@ impl ICAOCache {
     //
     fn address_was_recently_seen(&self, addr: u32) -> c_int {
         let h: u32 = Self::icao_cache_hash_address(addr);
-        let a: u32 = self.cache[h.wrapping_mul(2) as usize];
-        let t: u32 = self.cache[h.wrapping_mul(2).wrapping_add(1) as usize];
-        let tn = crate::now();
-        (a != 0 && a == addr && tn.wrapping_sub(u64::from(t)) <= MODES_ICAO_CACHE_TTL) as c_int
+        let (a, t) = self.cache[h as usize];
+        let tn = Instant::now();
+        let age = tn.duration_since(t);
+        (a != 0 && a == addr && age.as_secs() <= MODES_ICAO_CACHE_TTL) as c_int
     }
 }
 
