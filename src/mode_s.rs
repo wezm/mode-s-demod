@@ -1,6 +1,5 @@
 // ===================== Mode S detection and decoding  ===================
 
-use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::ffi::CStr;
 use std::io::Write;
@@ -693,13 +692,6 @@ fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
     // Show the raw message.
     unsafe { display_raw_message(mode_s, mm) };
 
-    let mut j = 0;
-    while j < mm.msgbits / 8 as c_int {
-        print!("{:02x}", mm.msg[j as usize] as c_int);
-        j += 1
-    }
-    println!(";");
-
     if mode_s.raw != 0 {
         let _ = io::stdout().flush();
         return;
@@ -1182,12 +1174,13 @@ fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
 }
 
 unsafe fn display_raw_message(mode_s: &ModeS, mm: &ModesMessage) {
-    print!("{}", format_raw_message(mode_s, mm));
+    println!("{}", format_raw_message(mode_s, mm));
 }
 
-unsafe fn format_raw_message(mode_s: &ModeS, mm: &ModesMessage) -> Cow<'static, str> {
+unsafe fn format_raw_message(mode_s: &ModeS, mm: &ModesMessage) -> String {
+    let mut s = String::with_capacity(mm.msgbits as usize / 4);
     if mode_s.mlat != 0 && mm.timestamp_msg != 0 {
-        let mut s = String::from("@");
+        s.push('@');
         let p_time_stamp = &mm.timestamp_msg as *const u64 as *const c_uchar;
         let mut j = 5;
         while j >= 0 {
@@ -1197,10 +1190,17 @@ unsafe fn format_raw_message(mode_s: &ModeS, mm: &ModesMessage) -> Cow<'static, 
             ));
             j -= 1
         }
-        Cow::from(s)
     } else {
-        Cow::from("*")
+        s.push('*')
     }
+
+    let mut j = 0;
+    while j < mm.msgbits / 8 as c_int {
+        s.push_str(&format!("{:02x}", mm.msg[j as usize] as c_int));
+        j += 1
+    }
+    s.push(';');
+    s
 }
 
 // Capability table
@@ -2455,11 +2455,13 @@ mod tests {
         };
         let mm = ModesMessage {
             timestamp_msg: 0xABCDEF12,
+            msgbits: 16,
+            msg: [0xC, 0xA, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             ..ModesMessage::default()
         };
         assert_eq!(
             &unsafe { format_raw_message(&mode_s, &mm) },
-            "@0000ABCDEF12"
+            "@0000ABCDEF120c0a;"
         );
     }
 
@@ -2471,8 +2473,15 @@ mod tests {
         };
         let mm = ModesMessage {
             timestamp_msg: 0xABCDEF12,
+            msgbits: 112,
+            msg: [
+                0x8d, 0x4d, 0x20, 0x23, 0x99, 0x10, 0x94, 0xad, 0x48, 0x7c, 0x14, 0xfc, 0x9e, 0x3d,
+            ],
             ..ModesMessage::default()
         };
-        assert_eq!(&unsafe { format_raw_message(&mode_s, &mm) }, "*");
+        assert_eq!(
+            &unsafe { format_raw_message(&mode_s, &mm) },
+            "*8d4d2023991094ad487c14fc9e3d;"
+        );
     }
 }
