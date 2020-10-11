@@ -185,7 +185,7 @@ unsafe fn fix_bit_errors(
 
 // Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
 // elements, that is assumed to be a power of two
-unsafe fn icao_cache_hash_address(mut a: u32) -> u32 {
+fn icao_cache_hash_address(mut a: u32) -> u32 {
     // The following three rounds wil make sure that every bit affects
     // every output bit with ~ 50% of probability.
     a = (a >> 16 as c_int ^ a).wrapping_mul(0x45d9f3b as c_int as c_uint);
@@ -198,29 +198,25 @@ unsafe fn icao_cache_hash_address(mut a: u32) -> u32 {
 // Note that we also add a timestamp so that we can make sure that the
 // entry is only valid for MODES_ICAO_CACHE_TTL seconds.
 //
-unsafe fn add_recently_seen_icao_addr(this: *mut ModeS, addr: u32) {
+fn add_recently_seen_icao_addr(this: &mut ModeS, addr: u32) {
     let h: u32 = icao_cache_hash_address(addr);
-    *(*this)
-        .icao_cache
-        .offset(h.wrapping_mul(2 as c_int as c_uint) as isize) = addr;
-    // Need seconds since epoch as a u32 to replace time(NULL) call.
+
+    // Add addr
+    this.icao_cache[h.wrapping_mul(2) as usize] = addr;
+
+    // Add timestamp
     let now = crate::now();
-    *(*this).icao_cache.offset(
-        h.wrapping_mul(2 as c_int as c_uint)
-            .wrapping_add(1 as c_int as c_uint) as isize,
-    ) = now as u32; // FIXME: change to 64-bit time
+    this.icao_cache[h.wrapping_mul(2).wrapping_add(1) as usize] = now as u32; // FIXME: change to 64-bit time
 }
 
 // Returns 1 if the specified ICAO address was seen in a DF format with
 // proper checksum (not xored with address) no more than * MODES_ICAO_CACHE_TTL
 // seconds ago. Otherwise returns 0.
 //
-unsafe fn icao_address_was_recently_seen(this: &ModeS, addr: u32) -> c_int {
+fn icao_address_was_recently_seen(this: &ModeS, addr: u32) -> c_int {
     let h: u32 = icao_cache_hash_address(addr);
-    let a: u32 = *this.icao_cache.offset(h.wrapping_mul(2) as isize);
-    let t: u32 = *this
-        .icao_cache
-        .offset(h.wrapping_mul(2).wrapping_add(1) as isize);
+    let a: u32 = this.icao_cache[h.wrapping_mul(2) as usize];
+    let t: u32 = this.icao_cache[h.wrapping_mul(2).wrapping_add(1) as usize];
     let tn = crate::now();
     (a != 0 && a == addr && tn.wrapping_sub(u64::from(t)) <= MODES_ICAO_CACHE_TTL) as c_int
 }
@@ -389,11 +385,11 @@ unsafe fn decode_mode_s_message(
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
                 // DF 11 : if crc == 0 try to populate our ICAO addresses whitelist.
-                add_recently_seen_icao_addr(mode_s, (*mm).addr);
+                add_recently_seen_icao_addr(&mut (*mode_s), (*mm).addr);
             } else if (*mm).crc < 80 as c_int as c_uint {
                 (*mm).crcok = icao_address_was_recently_seen(&(*mode_s), (*mm).addr);
                 if (*mm).crcok != 0 {
-                    add_recently_seen_icao_addr(mode_s, (*mm).addr);
+                    add_recently_seen_icao_addr(&mut (*mode_s), (*mm).addr);
                 }
             }
         }
@@ -406,7 +402,7 @@ unsafe fn decode_mode_s_message(
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
                 // DF 17 : if crc == 0 try to populate our ICAO addresses whitelist.
-                add_recently_seen_icao_addr(mode_s, (*mm).addr);
+                add_recently_seen_icao_addr(&mut (*mode_s), (*mm).addr);
             }
         }
         18 => {
@@ -420,7 +416,7 @@ unsafe fn decode_mode_s_message(
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
                 // DF 18 : if crc == 0 try to populate our ICAO addresses whitelist.
-                add_recently_seen_icao_addr(mode_s, (*mm).addr);
+                add_recently_seen_icao_addr(&mut (*mode_s), (*mm).addr);
             }
         }
         _ => {
