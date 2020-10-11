@@ -201,7 +201,7 @@ pub(crate) fn interactive_receive_data(mode_s: &mut ModeS, mm: &mut ModesMessage
 fn interactive_create_aircraft(mm: &mut ModesMessage) -> Aircraft {
     let mut a = Aircraft {
         addr: mm.addr,
-        flight: [0; 16],
+        flight: ['?' as u8; 8],
         signal_level: [mm.signal_level; 8], // First time, initialise everything to the first signal strength
         altitude: 0,
         speed: 0,

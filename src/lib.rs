@@ -86,7 +86,7 @@ enum Altitude {
 #[repr(C)]
 struct Aircraft {
     addr: u32,                  // ICAO address
-    flight: [c_char; 16],       // Flight number
+    flight: [u8; 8],            // Flight number
     signal_level: [c_uchar; 8], // Last 8 Signal Amplitudes
     altitude: c_int,            // Altitude
     speed: c_int,               // Velocity
@@ -218,7 +218,7 @@ struct ModesMessage {
     raw_longitude: c_int, // Non decoded longitude.
     f_lat: c_double,      // Coordinates obtained from CPR encoded data if/when decoded
     f_lon: c_double,      // Coordinates obtained from CPR encoded data if/when decoded
-    flight: [c_char; 16], // 8 chars flight number.
+    flight: [u8; 8],      // 8 chars flight number.
     ew_velocity: c_int,   // E/W velocity.
     ns_velocity: c_int,   // N/S velocity.
     vert_rate: c_int,     // Vertical rate.

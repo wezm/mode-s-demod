@@ -4,7 +4,7 @@ use std::convert::TryFrom;
 use std::ffi::CStr;
 use std::io::Write;
 use std::os::raw::{c_char, c_double, c_int, c_uchar, c_uint, c_ulong};
-use std::{io, ptr};
+use std::{io, ptr, str};
 
 use crate::interactive::interactive_receive_data;
 use crate::mode_ac::{decode_mode_a_message, detect_mode_a, mode_a_to_mode_c, MODEAC_MSG_SAMPLES};
@@ -324,6 +324,9 @@ unsafe fn decode_movement_field(movement: c_int) -> c_int {
     }
 }
 
+// In AIS characters are encoded using 6-bits giving 64 possible values
+const AIS_CHARSET: &[u8; 64] = b"?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
+
 // Decode a raw Mode S message demodulated as a stream of bytes by detectModeS(),
 // and split it into fields populating a ModesMessage structure.
 //
@@ -333,7 +336,6 @@ unsafe fn decode_mode_s_message(
     mode_s: *mut ModeS,
     bit_errors: &[errorinfo],
 ) {
-    let ais_charset = b"?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????\x00";
 
     // Work on our local copy
     ptr::copy_nonoverlapping(msg, (*mm).msg.as_mut_ptr(), MODES_LONG_MSG_BYTES as usize);
@@ -517,24 +519,23 @@ unsafe fn decode_mode_s_message(
             let mut chars = ((*msg.offset(5) as c_int) << 16
                 | (*msg.offset(6) as c_int) << 8
                 | *msg.offset(7) as c_int) as u32;
-            (*mm).flight[3] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            (*mm).flight[3] = AIS_CHARSET[(chars & 0x3f) as usize];
             chars = chars >> 6;
-            (*mm).flight[2] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            (*mm).flight[2] = AIS_CHARSET[(chars & 0x3f) as usize];
             chars = chars >> 6;
-            (*mm).flight[1] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            (*mm).flight[1] = AIS_CHARSET[(chars & 0x3f) as usize];
             chars = chars >> 6;
-            (*mm).flight[0] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            (*mm).flight[0] = AIS_CHARSET[(chars & 0x3f) as usize];
             chars = ((*msg.offset(8) as c_int) << 16
                 | (*msg.offset(9) as c_int) << 8
                 | *msg.offset(10) as c_int) as u32;
-            (*mm).flight[7] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            (*mm).flight[7] = AIS_CHARSET[(chars & 0x3f) as usize];
             chars = chars >> 6;
-            (*mm).flight[6] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            (*mm).flight[6] = AIS_CHARSET[(chars & 0x3f) as usize];
             chars = chars >> 6;
-            (*mm).flight[5] = ais_charset[(chars & 0x3f) as usize] as c_char;
+            (*mm).flight[5] = AIS_CHARSET[(chars & 0x3f) as usize];
             chars = chars >> 6;
-            (*mm).flight[4] = ais_charset[(chars & 0x3f) as usize] as c_char;
-            (*mm).flight[8] = 0;
+            (*mm).flight[4] = AIS_CHARSET[(chars & 0x3f) as usize];
         } else if metype == 19 as c_int {
             // Airborne Velocity Message
             // Presumably airborne if we get an Airborne Velocity Message
@@ -699,24 +700,23 @@ unsafe fn decode_mode_s_message(
             let mut chars_0 = ((*msg.offset(5) as c_int) << 16 as c_int
                 | (*msg.offset(6) as c_int) << 8 as c_int
                 | *msg.offset(7) as c_int) as u32;
-            (*mm).flight[3] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            (*mm).flight[3] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
             chars_0 = chars_0 >> 6;
-            (*mm).flight[2] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            (*mm).flight[2] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
             chars_0 = chars_0 >> 6;
-            (*mm).flight[1] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            (*mm).flight[1] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
             chars_0 = chars_0 >> 6;
-            (*mm).flight[0] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            (*mm).flight[0] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
             chars_0 = ((*msg.offset(8) as c_int) << 16
                 | (*msg.offset(9) as c_int) << 8
                 | *msg.offset(10) as c_int) as u32;
-            (*mm).flight[7] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            (*mm).flight[7] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
             chars_0 = chars_0 >> 6;
-            (*mm).flight[6] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            (*mm).flight[6] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
             chars_0 = chars_0 >> 6;
-            (*mm).flight[5] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
+            (*mm).flight[5] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
             chars_0 = chars_0 >> 6;
-            (*mm).flight[4] = ais_charset[(chars_0 & 0x3f) as usize] as c_char;
-            (*mm).flight[8] = 0;
+            (*mm).flight[4] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
         }
     };
 }
@@ -1319,11 +1319,9 @@ fn get_me_description(metype: c_int, mesub: c_int) -> &'static str {
 
 impl ModesMessage {
     fn flight_number_str(&self) -> &str {
-        unsafe {
-            CStr::from_ptr(&self.flight as *const c_char)
-                .to_str()
-                .unwrap_or("{invalid}")
-        }
+        // unwrap should never panic as flight is constructed from AIS_CHARSET,
+        // all of which are valid UTF-8.
+        str::from_utf8(&self.flight).unwrap()
     }
 }
 
