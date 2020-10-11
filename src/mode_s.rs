@@ -260,7 +260,7 @@ fn decode_id13_field(id13_field: c_int) -> c_int {
 // Decode the 13 bit AC altitude field (in DF 20 and others).
 // Returns the altitude, and set 'unit' to either MODES_UNIT_METERS or MDOES_UNIT_FEETS.
 //
-unsafe fn decode_ac13_field(ac13_field: c_int, unit: &mut Altitude) -> c_int {
+fn decode_ac13_field(ac13_field: c_int, unit: &mut Altitude) -> c_int {
     let m_bit = (ac13_field & 0x40) != 0; // set = meters, clear = feet
     let q_bit = (ac13_field & 0x10) != 0; // set = 25 ft encoding, clear = Gillham Mode C encoding
     if !m_bit {
@@ -287,7 +287,7 @@ unsafe fn decode_ac13_field(ac13_field: c_int, unit: &mut Altitude) -> c_int {
 
 // Decode the 12 bit AC altitude field (in DF 17 and others).
 //
-unsafe fn decode_ac12_field(ac12_field: c_int, unit: &mut Altitude) -> c_int {
+fn decode_ac12_field(ac12_field: c_int, unit: &mut Altitude) -> c_int {
     let q_bit = (ac12_field & 0x10) != 0; // Bit 48 = Q
     *unit = Altitude::Feet;
     if q_bit {
@@ -309,7 +309,7 @@ unsafe fn decode_ac12_field(ac12_field: c_int, unit: &mut Altitude) -> c_int {
 // FIXME: this function has no test coverage
 // Decode the 7 bit ground movement field PWL exponential style scale
 //
-unsafe fn decode_movement_field(movement: c_int) -> c_int {
+fn decode_movement_field(movement: c_int) -> c_int {
     // Note: movement codes 0,125,126,127 are all invalid, but they are
     //       trapped before this function is called.
     // FIXME: Capture above in types
@@ -336,7 +336,6 @@ unsafe fn decode_mode_s_message(
     mode_s: *mut ModeS,
     bit_errors: &[errorinfo],
 ) {
-
     // Work on our local copy
     ptr::copy_nonoverlapping(msg, (*mm).msg.as_mut_ptr(), MODES_LONG_MSG_BYTES as usize);
     let msg = (*mm).msg.as_mut_ptr();
