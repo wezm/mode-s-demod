@@ -1352,44 +1352,28 @@ unsafe fn apply_phase_correction(p_payload: *mut u16) {
     // use bits -1,6 for early detection (bit 0/7 arrived a little early, our sample period starts after the bit phase so we include some of the next bit)
     // use bits 3,10 for late detection (bit 2/9 arrived a little late, our sample period starts before the bit phase so we include some of the last bit)
 
-    let on_time: u32 = (*p_payload.offset(0) as c_int
-        + *p_payload.offset(2) as c_int
-        + *p_payload.offset(7) as c_int
-        + *p_payload.offset(9) as c_int) as u32;
-    let early: u32 = ((*p_payload.offset(-(1 as c_int) as isize) as c_int
-        + *p_payload.offset(6) as c_int)
-        << 1 as c_int) as u32;
-    let late: u32 =
-        ((*p_payload.offset(3) as c_int + *p_payload.offset(10) as c_int) << 1 as c_int) as u32;
+    let on_time: u32 = *p_payload.offset(0) as u32
+        + *p_payload.offset(2) as u32
+        + *p_payload.offset(7) as u32
+        + *p_payload.offset(9) as u32;
+    let early: u32 = (*p_payload.offset(-1) as u32 + *p_payload.offset(6) as u32) << 1;
+    let late: u32 = (*p_payload.offset(3) as u32 + *p_payload.offset(10) as u32) << 1;
 
     if early > late {
         // Our sample period starts late and so includes some of the next bit.
-        let scale_up: u16 = (16384 as c_int as c_uint).wrapping_add(
-            (16384 as c_int as c_uint)
-                .wrapping_mul(early)
-                .wrapping_div(early.wrapping_add(on_time)),
-        ) as u16; // 1 + early / (early+on_time)
-        let scale_down: u16 = (16384 as c_int as c_uint).wrapping_sub(
-            (16384 as c_int as c_uint)
-                .wrapping_mul(early)
-                .wrapping_div(early.wrapping_add(on_time)),
-        ) as u16; // 1 - early / (early+on_time)
+        let scale_up: u16 = u16::try_from(16384u32 + 16384 * early / (early + on_time)).unwrap(); // 1 + early / (early+onTime)
+        let scale_down: u16 = u16::try_from(16384u32 - 16384 * early / (early + on_time)).unwrap(); // 1 - early / (early+onTime)
 
         // trailing bits are 0; final data sample will be a bit low.
-        *p_payload.offset(
-            (8 as c_int * 2 as c_int + 14 as c_int * 8 as c_int * 2 as c_int - 1 as c_int) as isize,
-        ) = clamped_scale(
-            *p_payload.offset(
-                (8 as c_int * 2 as c_int + 14 as c_int * 8 as c_int * 2 as c_int - 1 as c_int)
-                    as isize,
-            ),
-            scale_up,
-        );
+        *p_payload.offset((MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1) as isize) =
+            clamped_scale(
+                *p_payload.offset((MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1) as isize),
+                scale_up,
+            );
 
         let mut j = MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2;
         while j > MODES_PREAMBLE_SAMPLES {
-            if *p_payload.offset(j as isize) as c_int > *p_payload.offset((j + 1) as isize) as c_int
-            {
+            if *p_payload.offset(j as isize) > *p_payload.offset((j + 1) as isize) {
                 // x [1 0] y
                 // x overlapped with the "1" bit and is slightly high
                 *p_payload.offset((j - 1) as isize) =
@@ -1404,34 +1388,24 @@ unsafe fn apply_phase_correction(p_payload: *mut u16) {
         }
     } else {
         // Our sample period starts early and so includes some of the previous bit.
-        let scale_up_0: u16 = (16384 as c_int as c_uint).wrapping_add(
-            (16384 as c_int as c_uint)
-                .wrapping_mul(late)
-                .wrapping_div(late.wrapping_add(on_time)),
-        ) as u16; // 1 + late / (late+on_time)
-        let scale_down_0: u16 = (16384 as c_int as c_uint).wrapping_sub(
-            (16384 as c_int as c_uint)
-                .wrapping_mul(late)
-                .wrapping_div(late.wrapping_add(on_time)),
-        ) as u16; // 1 - late / (late+on_time)
+        let scale_up: u16 = u16::try_from(16384u32 + 16384 * late / (late + on_time)).unwrap(); // 1 + late / (late+onTime)
+        let scale_down: u16 = u16::try_from(16384u32 - 16384 * late / (late + on_time)).unwrap(); // 1 - late / (late+onTime)
 
         // leading bits are 0; first data sample will be a bit low.
-        *p_payload.offset(MODES_PREAMBLE_SAMPLES as isize) = clamped_scale(
-            *p_payload.offset(MODES_PREAMBLE_SAMPLES as isize),
-            scale_up_0,
-        );
+        *p_payload.offset(MODES_PREAMBLE_SAMPLES as isize) =
+            clamped_scale(*p_payload.offset(MODES_PREAMBLE_SAMPLES as isize), scale_up);
         let mut j = MODES_PREAMBLE_SAMPLES;
         while j < MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2 {
             if *p_payload.offset(j as isize) as c_int > *p_payload.offset(j as isize + 1) as c_int {
                 // x [1 0] y
                 // y overlapped with the "0" bit and is slightly low
                 *p_payload.offset(j as isize + 2) =
-                    clamped_scale(*p_payload.offset(j as isize + 2), scale_up_0)
+                    clamped_scale(*p_payload.offset(j as isize + 2), scale_up)
             } else {
                 // x [0 1] y
                 // y overlapped with the "1" bit and is slightly high
                 *p_payload.offset(j as isize + 2) =
-                    clamped_scale(*p_payload.offset(j as isize + 2), scale_down_0)
+                    clamped_scale(*p_payload.offset(j as isize + 2), scale_down)
             }
             j += 2
         }
