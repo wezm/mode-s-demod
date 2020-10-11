@@ -293,18 +293,17 @@ const AIS_CHARSET: &[u8; 64] = b"?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ??????????????
 // Decode a raw Mode S message demodulated as a stream of bytes by detectModeS(),
 // and split it into fields populating a ModesMessage structure.
 //
-unsafe fn decode_mode_s_message(
+fn decode_mode_s_message(
     mm: &mut ModesMessage,
     msg: [u8; MODES_LONG_MSG_BYTES],
-    mode_s: &mut ModeS,
+    mode_s: &mut ModeS, // FIXME: This is mutable only for icao_cache
     bit_errors: &[ErrorInfo],
 ) {
-    // Work on a local copy
+    // Copy the raw data onto the message, it may be modified by fix_bit_errors
     mm.msg = msg;
-    let msg = mm.msg.as_mut_ptr();
 
     // Get the message type ASAP as other operations depend on this
-    mm.msgtype = c_int::from(*msg.offset(0)) >> 3; // Downlink Format
+    mm.msgtype = c_int::from(mm.msg[0]) >> 3; // Downlink Format
     mm.msgbits = mode_s_message_len_by_type(mm.msgtype);
     mm.crc = mode_s_checksum(mm.msg, mm.msgbits);
 
@@ -320,19 +319,21 @@ unsafe fn decode_mode_s_message(
         // using the results. Perhaps check the ICAO against known Aircraft, and check
         // IID against known good IID's. That's a TODO.
         //
-        mm.correctedbits = fix_bit_errors(
-            &mut mm.msg,
-            mm.msgbits,
-            mode_s.nfix_crc,
-            mm.corrected.as_mut_ptr(),
-            bit_errors,
-        );
+        mm.correctedbits = unsafe {
+            fix_bit_errors(
+                &mut mm.msg,
+                mm.msgbits,
+                mode_s.nfix_crc,
+                mm.corrected.as_mut_ptr(),
+                bit_errors,
+            )
+        };
 
         // If we correct, validate ICAO addr to help filter birthday paradox solutions.
         if mm.correctedbits != 0 {
-            let ul_addr: u32 = ((*msg.offset(1) as c_int) << 16 as c_int
-                | (*msg.offset(2) as c_int) << 8 as c_int
-                | *msg.offset(3) as c_int) as u32;
+            let ul_addr: u32 = ((mm.msg[1] as c_int) << 16 as c_int
+                | (mm.msg[2] as c_int) << 8 as c_int
+                | mm.msg[3] as c_int) as u32;
             if mode_s.icao_cache.address_was_recently_seen(ul_addr) == 0 {
                 mm.correctedbits = 0;
             }
@@ -345,10 +346,10 @@ unsafe fn decode_mode_s_message(
         11 => {
             // DF 11
             mm.iid = mm.crc as c_int; // Responder capabilities, zero indicates no communications capability (surveillance only)
-            mm.addr = ((*msg.offset(1) as c_int) << 16 as c_int
-                | (*msg.offset(2) as c_int) << 8 as c_int
-                | *msg.offset(3) as c_int) as u32;
-            mm.ca = *msg.offset(0) as c_int & 0x7 as c_int;
+            mm.addr = ((mm.msg[1] as c_int) << 16 as c_int
+                | (mm.msg[2] as c_int) << 8 as c_int
+                | mm.msg[3] as c_int) as u32;
+            mm.ca = mm.msg[0] as c_int & 0x7 as c_int;
             mm.crcok = (0 as c_int as c_uint == mm.crc) as c_int;
             if mm.crcok != 0 {
                 // DF 11 : if crc == 0 try to populate our ICAO addresses whitelist.
@@ -362,10 +363,10 @@ unsafe fn decode_mode_s_message(
         }
         17 => {
             // DF 17
-            mm.addr = ((*msg.offset(1) as c_int) << 16 as c_int
-                | (*msg.offset(2) as c_int) << 8 as c_int
-                | *msg.offset(3) as c_int) as u32; // Responder capabilities
-            mm.ca = *msg.offset(0) as c_int & 0x7 as c_int;
+            mm.addr = ((mm.msg[1] as c_int) << 16 as c_int
+                | (mm.msg[2] as c_int) << 8 as c_int
+                | mm.msg[3] as c_int) as u32; // Responder capabilities
+            mm.ca = mm.msg[0] as c_int & 0x7 as c_int;
             mm.crcok = (0 as c_int as c_uint == mm.crc) as c_int;
             if mm.crcok != 0 {
                 // DF 17 : if crc == 0 try to populate our ICAO addresses whitelist.
@@ -376,10 +377,10 @@ unsafe fn decode_mode_s_message(
             // DF 18
             // This is currently identical to DF 17 as the ca field is being reused to store the
             // Control Field.
-            mm.addr = ((*msg.offset(1) as c_int) << 16 as c_int
-                | (*msg.offset(2) as c_int) << 8 as c_int
-                | *msg.offset(3) as c_int) as u32; // Control Field, should always be 0 for ADS-B
-            mm.ca = *msg.offset(0) as c_int & 0x7 as c_int;
+            mm.addr = ((mm.msg[1] as c_int) << 16 as c_int
+                | (mm.msg[2] as c_int) << 8 as c_int
+                | mm.msg[3] as c_int) as u32; // Control Field, should always be 0 for ADS-B
+            mm.ca = mm.msg[0] as c_int & 0x7 as c_int;
             mm.crcok = (0 as c_int as c_uint == mm.crc) as c_int;
             if mm.crcok != 0 {
                 // DF 18 : if crc == 0 try to populate our ICAO addresses whitelist.
@@ -403,7 +404,7 @@ unsafe fn decode_mode_s_message(
 
     // Fields for DF0, DF16
     if mm.msgtype == 0 as c_int || mm.msgtype == 16 as c_int {
-        if *msg.offset(0) as c_int & 0x4 as c_int != 0 {
+        if mm.msg[0] as c_int & 0x4 as c_int != 0 {
             // VS Bit
             mm.b_flags |= (1 as c_int) << 12 as c_int | (1 as c_int) << 9 as c_int
         } else {
@@ -423,7 +424,7 @@ unsafe fn decode_mode_s_message(
     // Fields for DF5, DF21 = Gillham encoded Squawk
     if mm.msgtype == 5 as c_int || mm.msgtype == 21 as c_int {
         let id13field: c_int =
-            ((*msg.offset(2) as c_int) << 8 as c_int | *msg.offset(3) as c_int) & 0x1fff as c_int;
+            ((mm.msg[2] as c_int) << 8 as c_int | mm.msg[3] as c_int) & 0x1fff as c_int;
         if id13field != 0 {
             mm.b_flags |= (1 as c_int) << 5 as c_int;
             mm.mode_a = decode_id13_field(id13field)
@@ -437,7 +438,7 @@ unsafe fn decode_mode_s_message(
         || mm.msgtype == 20 as c_int
     {
         let ac13field: c_int =
-            ((*msg.offset(2) as c_int) << 8 as c_int | *msg.offset(3) as c_int) & 0x1fff as c_int;
+            ((mm.msg[2] as c_int) << 8 as c_int | mm.msg[3] as c_int) & 0x1fff as c_int;
         if ac13field != 0 {
             // Only attempt to decode if a valid (non zero) altitude is present
             mm.b_flags |= (1 as c_int) << 1 as c_int;
@@ -452,7 +453,7 @@ unsafe fn decode_mode_s_message(
         || mm.msgtype == 21 as c_int
     {
         mm.b_flags |= (1 as c_int) << 13 as c_int; // Flight status for DF4,5,20,21
-        mm.fs = *msg.offset(0) as c_int & 7 as c_int;
+        mm.fs = mm.msg[0] as c_int & 7 as c_int;
         if mm.fs <= 3 as c_int {
             mm.b_flags |= (1 as c_int) << 12 as c_int;
             if mm.fs & 1 as c_int != 0 {
@@ -466,21 +467,21 @@ unsafe fn decode_mode_s_message(
         || mm.msgtype == 18 as c_int
             && (mm.ca == 0 as c_int || mm.ca == 1 as c_int || mm.ca == 6 as c_int)
     {
-        mm.metype = *msg.offset(4) as c_int >> 3 as c_int; // Extended squitter message type
+        mm.metype = mm.msg[4] as c_int >> 3 as c_int; // Extended squitter message type
         let metype: c_int = mm.metype; // Extended squitter message subtype
         mm.mesub = if metype == 29 as c_int {
-            (*msg.offset(4) as c_int & 6 as c_int) >> 1 as c_int
+            (mm.msg[4] as c_int & 6 as c_int) >> 1 as c_int
         } else {
-            (*msg.offset(4) as c_int) & 7 as c_int
+            (mm.msg[4] as c_int) & 7 as c_int
         };
         let mesub: c_int = mm.mesub;
         // Decode the extended squitter message
         if metype >= 1 as c_int && metype <= 4 as c_int {
             // Aircraft Identification and Category
             mm.b_flags |= 1 << 6;
-            let mut chars = ((*msg.offset(5) as c_int) << 16
-                | (*msg.offset(6) as c_int) << 8
-                | *msg.offset(7) as c_int) as u32;
+            let mut chars = ((mm.msg[5] as c_int) << 16
+                | (mm.msg[6] as c_int) << 8
+                | mm.msg[7] as c_int) as u32;
             mm.flight[3] = AIS_CHARSET[(chars & 0x3f) as usize];
             chars = chars >> 6;
             mm.flight[2] = AIS_CHARSET[(chars & 0x3f) as usize];
@@ -488,9 +489,8 @@ unsafe fn decode_mode_s_message(
             mm.flight[1] = AIS_CHARSET[(chars & 0x3f) as usize];
             chars = chars >> 6;
             mm.flight[0] = AIS_CHARSET[(chars & 0x3f) as usize];
-            chars = ((*msg.offset(8) as c_int) << 16
-                | (*msg.offset(9) as c_int) << 8
-                | *msg.offset(10) as c_int) as u32;
+            chars = ((mm.msg[8] as c_int) << 16 | (mm.msg[9] as c_int) << 8 | mm.msg[10] as c_int)
+                as u32;
             mm.flight[7] = AIS_CHARSET[(chars & 0x3f) as usize];
             chars = chars >> 6;
             mm.flight[6] = AIS_CHARSET[(chars & 0x3f) as usize];
@@ -503,11 +503,11 @@ unsafe fn decode_mode_s_message(
             // Presumably airborne if we get an Airborne Velocity Message
             mm.b_flags |= (1 as c_int) << 12 as c_int;
             if mesub >= 1 as c_int && mesub <= 4 as c_int {
-                let mut vert_rate: c_int = (*msg.offset(8) as c_int & 0x7 as c_int) << 6 as c_int
-                    | *msg.offset(9) as c_int >> 2 as c_int;
+                let mut vert_rate: c_int = (mm.msg[8] as c_int & 0x7 as c_int) << 6 as c_int
+                    | mm.msg[9] as c_int >> 2 as c_int;
                 if vert_rate != 0 {
                     vert_rate -= 1;
-                    if *msg.offset(8) as c_int & 0x8 as c_int != 0 {
+                    if mm.msg[8] as c_int & 0x8 as c_int != 0 {
                         vert_rate = 0 as c_int - vert_rate
                     }
                     mm.vert_rate = vert_rate * 64 as c_int;
@@ -515,11 +515,11 @@ unsafe fn decode_mode_s_message(
                 }
             }
             if mesub == 1 as c_int || mesub == 2 as c_int {
-                let ew_raw: c_int = (*msg.offset(5) as c_int & 0x3 as c_int) << 8 as c_int
-                    | *msg.offset(6) as c_int;
+                let ew_raw: c_int =
+                    (mm.msg[5] as c_int & 0x3 as c_int) << 8 as c_int | mm.msg[6] as c_int;
                 let mut ew_vel: c_int = ew_raw - 1 as c_int;
-                let ns_raw: c_int = (*msg.offset(7) as c_int & 0x7f as c_int) << 3 as c_int
-                    | *msg.offset(8) as c_int >> 5 as c_int;
+                let ns_raw: c_int = (mm.msg[7] as c_int & 0x7f as c_int) << 3 as c_int
+                    | mm.msg[8] as c_int >> 5 as c_int;
                 let mut ns_vel: c_int = ns_raw - 1 as c_int;
                 if mesub == 2 as c_int {
                     // If (supersonic) unit is 4 kts
@@ -529,7 +529,7 @@ unsafe fn decode_mode_s_message(
                 if ew_raw != 0 {
                     // Do East/West
                     mm.b_flags |= (1 as c_int) << 7 as c_int;
-                    if *msg.offset(5) as c_int & 0x4 as c_int != 0 {
+                    if mm.msg[5] as c_int & 0x4 as c_int != 0 {
                         ew_vel = 0 as c_int - ew_vel
                     }
                     mm.ew_velocity = ew_vel
@@ -537,7 +537,7 @@ unsafe fn decode_mode_s_message(
                 if ns_raw != 0 {
                     // Do North/South
                     mm.b_flags |= (1 as c_int) << 8 as c_int;
-                    if *msg.offset(7) as c_int & 0x80 as c_int != 0 {
+                    if mm.msg[7] as c_int & 0x80 as c_int != 0 {
                         ns_vel = 0 as c_int - ns_vel
                     }
                     mm.ns_velocity = ns_vel
@@ -559,8 +559,8 @@ unsafe fn decode_mode_s_message(
                     }
                 }
             } else if mesub == 3 as c_int || mesub == 4 as c_int {
-                let mut airspeed: c_int = (*msg.offset(7) as c_int & 0x7f as c_int) << 3 as c_int
-                    | *msg.offset(8) as c_int >> 5 as c_int;
+                let mut airspeed: c_int = (mm.msg[7] as c_int & 0x7f as c_int) << 3 as c_int
+                    | mm.msg[8] as c_int >> 5 as c_int;
                 if airspeed != 0 {
                     mm.b_flags |= (1 as c_int) << 3 as c_int;
                     airspeed -= 1;
@@ -570,30 +570,30 @@ unsafe fn decode_mode_s_message(
                     }
                     mm.velocity = airspeed
                 }
-                if *msg.offset(5) as c_int & 0x4 as c_int != 0 {
+                if mm.msg[5] as c_int & 0x4 as c_int != 0 {
                     mm.b_flags |= (1 as c_int) << 2 as c_int;
-                    mm.heading = ((*msg.offset(5) as c_int & 0x3 as c_int) << 8 as c_int
-                        | *msg.offset(6) as c_int)
+                    mm.heading = ((mm.msg[5] as c_int & 0x3 as c_int) << 8 as c_int
+                        | mm.msg[6] as c_int)
                         * 45 as c_int
                         >> 7 as c_int
                 }
             }
         } else if metype >= 5 as c_int && metype <= 22 as c_int {
             // Position Message
-            mm.raw_latitude = (*msg.offset(6) as c_int & 3 as c_int) << 15 as c_int
-                | (*msg.offset(7) as c_int) << 7 as c_int
-                | *msg.offset(8) as c_int >> 1 as c_int; // Ground
-            mm.raw_longitude = (*msg.offset(8) as c_int & 1 as c_int) << 16 as c_int
-                | (*msg.offset(9) as c_int) << 8 as c_int
-                | *msg.offset(10) as c_int;
+            mm.raw_latitude = (mm.msg[6] as c_int & 3 as c_int) << 15 as c_int
+                | (mm.msg[7] as c_int) << 7 as c_int
+                | mm.msg[8] as c_int >> 1 as c_int; // Ground
+            mm.raw_longitude = (mm.msg[8] as c_int & 1 as c_int) << 16 as c_int
+                | (mm.msg[9] as c_int) << 8 as c_int
+                | mm.msg[10] as c_int;
             mm.b_flags |= if mm.msg[6 as c_int as usize] as c_int & 0x4 as c_int != 0 {
                 (1 as c_int) << 11 as c_int
             } else {
                 (1 as c_int) << 10 as c_int
             };
             if metype >= 9 as c_int {
-                let ac12field: c_int = ((*msg.offset(5) as c_int) << 4 as c_int
-                    | *msg.offset(6) as c_int >> 4 as c_int)
+                let ac12field: c_int = ((mm.msg[5] as c_int) << 4 as c_int
+                    | mm.msg[6] as c_int >> 4 as c_int)
                     & 0xfff as c_int;
                 mm.b_flags |= (1 as c_int) << 12 as c_int;
                 if ac12field != 0 {
@@ -603,18 +603,18 @@ unsafe fn decode_mode_s_message(
                     mm.altitude = decode_ac12_field(ac12field, &mut mm.unit)
                 }
             } else {
-                let movement: c_int = ((*msg.offset(4) as c_int) << 4 as c_int
-                    | *msg.offset(5) as c_int >> 4 as c_int)
+                let movement: c_int = ((mm.msg[4] as c_int) << 4 as c_int
+                    | mm.msg[5] as c_int >> 4 as c_int)
                     & 0x7f as c_int;
                 mm.b_flags |= (1 as c_int) << 12 as c_int | (1 as c_int) << 9 as c_int;
                 if movement != 0 && movement < 125 as c_int {
                     mm.b_flags |= (1 as c_int) << 3 as c_int;
                     mm.velocity = decode_movement_field(movement)
                 }
-                if *msg.offset(5) as c_int & 0x8 as c_int != 0 {
+                if mm.msg[5] as c_int & 0x8 as c_int != 0 {
                     mm.b_flags |= (1 as c_int) << 2 as c_int;
-                    mm.heading = (((*msg.offset(5) as c_int) << 4 as c_int
-                        | *msg.offset(6) as c_int >> 4 as c_int)
+                    mm.heading = (((mm.msg[5] as c_int) << 4 as c_int
+                        | mm.msg[6] as c_int >> 4 as c_int)
                         & 0x7f as c_int)
                         * 45 as c_int
                         >> 4 as c_int
@@ -624,10 +624,9 @@ unsafe fn decode_mode_s_message(
             // Test metype squawk field
             if mesub == 7 as c_int {
                 // (see 1090-WP-15-20)
-                let id13field_0: c_int = (((*msg.offset(5) as c_int) << 8 as c_int
-                    | *msg.offset(6) as c_int)
-                    & 0xfff1 as c_int)
-                    >> 3 as c_int;
+                let id13field_0: c_int =
+                    (((mm.msg[5] as c_int) << 8 as c_int | mm.msg[6] as c_int) & 0xfff1 as c_int)
+                        >> 3 as c_int;
                 if id13field_0 != 0 {
                     mm.b_flags |= (1 as c_int) << 5 as c_int;
                     mm.mode_a = decode_id13_field(id13field_0)
@@ -638,9 +637,8 @@ unsafe fn decode_mode_s_message(
                 // Extended Squitter Aircraft Status
                 if mesub == 1 as c_int {
                     // Emergency status squawk field
-                    let id13field_1: c_int = ((*msg.offset(5) as c_int) << 8 as c_int
-                        | *msg.offset(6) as c_int)
-                        & 0x1fff as c_int;
+                    let id13field_1: c_int =
+                        ((mm.msg[5] as c_int) << 8 as c_int | mm.msg[6] as c_int) & 0x1fff as c_int;
                     if id13field_1 != 0 {
                         mm.b_flags |= (1 as c_int) << 5 as c_int;
                         mm.mode_a = decode_id13_field(id13field_1)
@@ -656,12 +654,12 @@ unsafe fn decode_mode_s_message(
 
     // Fields for DF20, DF21 Comm-B
     if mm.msgtype == 20 as c_int || mm.msgtype == 21 as c_int {
-        if *msg.offset(4) as c_int == 0x20 as c_int {
+        if mm.msg[4] as c_int == 0x20 as c_int {
             // Aircraft Identification
             mm.b_flags |= (1 as c_int) << 6 as c_int;
-            let mut chars_0 = ((*msg.offset(5) as c_int) << 16 as c_int
-                | (*msg.offset(6) as c_int) << 8 as c_int
-                | *msg.offset(7) as c_int) as u32;
+            let mut chars_0 = ((mm.msg[5] as c_int) << 16 as c_int
+                | (mm.msg[6] as c_int) << 8 as c_int
+                | mm.msg[7] as c_int) as u32;
             mm.flight[3] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
             chars_0 = chars_0 >> 6;
             mm.flight[2] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
@@ -669,9 +667,8 @@ unsafe fn decode_mode_s_message(
             mm.flight[1] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
             chars_0 = chars_0 >> 6;
             mm.flight[0] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
-            chars_0 = ((*msg.offset(8) as c_int) << 16
-                | (*msg.offset(9) as c_int) << 8
-                | *msg.offset(10) as c_int) as u32;
+            chars_0 = ((mm.msg[8] as c_int) << 16 | (mm.msg[9] as c_int) << 8 | mm.msg[10] as c_int)
+                as u32;
             mm.flight[7] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
             chars_0 = chars_0 >> 6;
             mm.flight[6] = AIS_CHARSET[(chars_0 & 0x3f) as usize];
