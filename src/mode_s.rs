@@ -685,17 +685,15 @@ fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
     // Handle only addresses mode first.
     if mode_s.onlyaddr != 0 {
         println!("{:06x}", mm.addr);
-        return;
-        // Enough for --onlyaddr mode
+        return; // Enough for --onlyaddr mode
     }
 
     // Show the raw message.
-    unsafe { display_raw_message(mode_s, mm) };
+    println!("{}", format_raw_message(mode_s, mm));
 
     if mode_s.raw != 0 {
         let _ = io::stdout().flush();
-        return;
-        // Enough for --raw mode
+        return; // Enough for --raw mode
     }
 
     if mm.msgtype < 32 as c_int {
@@ -1173,22 +1171,13 @@ fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
     println!();
 }
 
-unsafe fn display_raw_message(mode_s: &ModeS, mm: &ModesMessage) {
-    println!("{}", format_raw_message(mode_s, mm));
-}
-
-unsafe fn format_raw_message(mode_s: &ModeS, mm: &ModesMessage) -> String {
+fn format_raw_message(mode_s: &ModeS, mm: &ModesMessage) -> String {
     let mut s = String::with_capacity(mm.msgbits as usize / 4);
     if mode_s.mlat != 0 && mm.timestamp_msg != 0 {
         s.push('@');
-        let p_time_stamp = &mm.timestamp_msg as *const u64 as *const c_uchar;
-        let mut j = 5;
-        while j >= 0 {
-            s.push_str(&format!(
-                "{:02X}",
-                *p_time_stamp.offset(j as isize) as c_int
-            ));
-            j -= 1
+        let bytes = mm.timestamp_msg.to_le_bytes();
+        for byte in bytes[0..6].into_iter().rev() {
+            s.push_str(&format!("{:02X}", byte))
         }
     } else {
         s.push('*')
@@ -2459,10 +2448,7 @@ mod tests {
             msg: [0xC, 0xA, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             ..ModesMessage::default()
         };
-        assert_eq!(
-            &unsafe { format_raw_message(&mode_s, &mm) },
-            "@0000ABCDEF120c0a;"
-        );
+        assert_eq!(&format_raw_message(&mode_s, &mm), "@0000ABCDEF120c0a;");
     }
 
     #[test]
@@ -2480,7 +2466,7 @@ mod tests {
             ..ModesMessage::default()
         };
         assert_eq!(
-            &unsafe { format_raw_message(&mode_s, &mm) },
+            &format_raw_message(&mode_s, &mm),
             "*8d4d2023991094ad487c14fc9e3d;"
         );
     }
