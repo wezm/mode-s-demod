@@ -116,13 +116,12 @@ struct Aircraft {
 }
 
 // Program global state
-#[derive(Clone)]
 #[repr(C)]
 pub struct ModeS {
-    pub magnitude: Vec<u16>,                                   // Magnitude vector
-    timestamp_blk: u64, // Timestamp of the start of the current block
-    icao_cache: Box<[u32; MODES_ICAO_CACHE_LEN as usize * 2]>, // Recently seen ICAO addresses cache
-    maglut: *mut u16,   // I/Q -> Magnitude lookup table
+    pub magnitude: Vec<u16>, // Magnitude vector
+    timestamp_blk: u64,      // Timestamp of the start of the current block
+    icao_cache: ICAOCache,   // Recently seen ICAO addresses cache
+    maglut: *mut u16,        // I/Q -> Magnitude lookup table
 
     // Networking
     raw_out: *mut c_char,   // Buffer for building raw output data
@@ -190,6 +189,10 @@ pub struct ModeS {
     stat_mode_ac: c_uint,
 }
 
+struct ICAOCache {
+    cache: Box<[u32; MODES_ICAO_CACHE_LEN as usize * 2]>,
+}
+
 #[derive(Clone, Default)]
 #[repr(C)]
 struct ModesMessage {
@@ -249,6 +252,52 @@ impl fmt::Display for Altitude {
     }
 }
 
+impl ICAOCache {
+    fn new() -> Self {
+        ICAOCache {
+            cache: Box::new([0u32; MODES_ICAO_CACHE_LEN as usize * 2]),
+        }
+    }
+
+    // Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
+    // elements, that is assumed to be a power of two
+    fn icao_cache_hash_address(mut a: u32) -> u32 {
+        // The following three rounds wil make sure that every bit affects
+        // every output bit with ~ 50% of probability.
+        a = (a >> 16 as c_int ^ a).wrapping_mul(0x45d9f3b as c_int as c_uint);
+        a = (a >> 16 as c_int ^ a).wrapping_mul(0x45d9f3b as c_int as c_uint);
+        a = a >> 16 as c_int ^ a;
+        a & (MODES_ICAO_CACHE_LEN - 1)
+    }
+
+    // Add the specified entry to the cache of recently seen ICAO addresses.
+    // Note that we also add a timestamp so that we can make sure that the
+    // entry is only valid for MODES_ICAO_CACHE_TTL seconds.
+    //
+    fn add_recently_seen_addr(&mut self, addr: u32) {
+        let h: u32 = Self::icao_cache_hash_address(addr);
+
+        // Add addr
+        self.cache[h.wrapping_mul(2) as usize] = addr;
+
+        // Add timestamp
+        let now = crate::now();
+        self.cache[h.wrapping_mul(2).wrapping_add(1) as usize] = now as u32; // FIXME: change to 64-bit time
+    }
+
+    // Returns 1 if the specified ICAO address was seen in a DF format with
+    // proper checksum (not xored with address) no more than * MODES_ICAO_CACHE_TTL
+    // seconds ago. Otherwise returns 0.
+    //
+    fn address_was_recently_seen(&self, addr: u32) -> c_int {
+        let h: u32 = Self::icao_cache_hash_address(addr);
+        let a: u32 = self.cache[h.wrapping_mul(2) as usize];
+        let t: u32 = self.cache[h.wrapping_mul(2).wrapping_add(1) as usize];
+        let tn = crate::now();
+        (a != 0 && a == addr && tn.wrapping_sub(u64::from(t)) <= MODES_ICAO_CACHE_TTL) as c_int
+    }
+}
+
 impl Default for ModeS {
     fn default() -> Self {
         ModeS {
@@ -293,7 +342,7 @@ impl Default for ModeS {
             stat_df_len_corrected: 0,
             stat_df_type_corrected: 0,
             stat_mode_ac: 0,
-            icao_cache: Box::new([0u32; MODES_ICAO_CACHE_LEN as usize * 2]),
+            icao_cache: ICAOCache::new(),
             magnitude: vec![
                 0;
                 MODES_ASYNC_BUF_SAMPLES

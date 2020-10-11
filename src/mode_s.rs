@@ -14,10 +14,10 @@ use crate::{
     MODES_ACFLAGS_LATLON_VALID, MODES_ACFLAGS_NSSPEED_VALID, MODES_ACFLAGS_SPEED_VALID,
     MODES_ACFLAGS_VERTRATE_VALID, MODES_ASYNC_BUF_SAMPLES, MODES_DEBUG_BADCRC, MODES_DEBUG_DEMOD,
     MODES_DEBUG_DEMODERR, MODES_DEBUG_GOODCRC, MODES_DEBUG_NOPREAMBLE,
-    MODES_DEBUG_NOPREAMBLE_LEVEL, MODES_ICAO_CACHE_LEN, MODES_ICAO_CACHE_TTL, MODES_LONG_MSG_BITS,
-    MODES_LONG_MSG_BYTES, MODES_LONG_MSG_SAMPLES, MODES_LONG_MSG_SIZE, MODES_MAX_BITERRORS,
-    MODES_MSG_ENCODER_ERRS, MODES_MSG_SQUELCH_LEVEL, MODES_PREAMBLE_SAMPLES, MODES_PREAMBLE_SIZE,
-    MODES_PREAMBLE_US, MODES_SHORT_MSG_BITS, MODES_USER_LATITUDE_DFLT, MODES_USER_LATLON_VALID,
+    MODES_DEBUG_NOPREAMBLE_LEVEL, MODES_LONG_MSG_BITS, MODES_LONG_MSG_BYTES,
+    MODES_LONG_MSG_SAMPLES, MODES_LONG_MSG_SIZE, MODES_MAX_BITERRORS, MODES_MSG_ENCODER_ERRS,
+    MODES_MSG_SQUELCH_LEVEL, MODES_PREAMBLE_SAMPLES, MODES_PREAMBLE_SIZE, MODES_PREAMBLE_US,
+    MODES_SHORT_MSG_BITS, MODES_USER_LATITUDE_DFLT, MODES_USER_LATLON_VALID,
     MODES_USER_LONGITUDE_DFLT,
 };
 
@@ -183,44 +183,6 @@ unsafe fn fix_bit_errors(
     return res;
 }
 
-// Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
-// elements, that is assumed to be a power of two
-fn icao_cache_hash_address(mut a: u32) -> u32 {
-    // The following three rounds wil make sure that every bit affects
-    // every output bit with ~ 50% of probability.
-    a = (a >> 16 as c_int ^ a).wrapping_mul(0x45d9f3b as c_int as c_uint);
-    a = (a >> 16 as c_int ^ a).wrapping_mul(0x45d9f3b as c_int as c_uint);
-    a = a >> 16 as c_int ^ a;
-    a & (MODES_ICAO_CACHE_LEN - 1)
-}
-
-// Add the specified entry to the cache of recently seen ICAO addresses.
-// Note that we also add a timestamp so that we can make sure that the
-// entry is only valid for MODES_ICAO_CACHE_TTL seconds.
-//
-fn add_recently_seen_icao_addr(this: &mut ModeS, addr: u32) {
-    let h: u32 = icao_cache_hash_address(addr);
-
-    // Add addr
-    this.icao_cache[h.wrapping_mul(2) as usize] = addr;
-
-    // Add timestamp
-    let now = crate::now();
-    this.icao_cache[h.wrapping_mul(2).wrapping_add(1) as usize] = now as u32; // FIXME: change to 64-bit time
-}
-
-// Returns 1 if the specified ICAO address was seen in a DF format with
-// proper checksum (not xored with address) no more than * MODES_ICAO_CACHE_TTL
-// seconds ago. Otherwise returns 0.
-//
-fn icao_address_was_recently_seen(this: &ModeS, addr: u32) -> c_int {
-    let h: u32 = icao_cache_hash_address(addr);
-    let a: u32 = this.icao_cache[h.wrapping_mul(2) as usize];
-    let t: u32 = this.icao_cache[h.wrapping_mul(2).wrapping_add(1) as usize];
-    let tn = crate::now();
-    (a != 0 && a == addr && tn.wrapping_sub(u64::from(t)) <= MODES_ICAO_CACHE_TTL) as c_int
-}
-
 // In the squawk (identity) field bits are interleaved as follows in
 // (message bit 20 to bit 32):
 //
@@ -366,7 +328,7 @@ unsafe fn decode_mode_s_message(
             let ul_addr: u32 = ((*msg.offset(1) as c_int) << 16 as c_int
                 | (*msg.offset(2) as c_int) << 8 as c_int
                 | *msg.offset(3) as c_int) as u32;
-            if icao_address_was_recently_seen(&(*mode_s), ul_addr) == 0 {
+            if (*mode_s).icao_cache.address_was_recently_seen(ul_addr) == 0 {
                 (*mm).correctedbits = 0;
             }
         }
@@ -385,11 +347,11 @@ unsafe fn decode_mode_s_message(
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
                 // DF 11 : if crc == 0 try to populate our ICAO addresses whitelist.
-                add_recently_seen_icao_addr(&mut (*mode_s), (*mm).addr);
+                (*mode_s).icao_cache.add_recently_seen_addr((*mm).addr);
             } else if (*mm).crc < 80 as c_int as c_uint {
-                (*mm).crcok = icao_address_was_recently_seen(&(*mode_s), (*mm).addr);
+                (*mm).crcok = (*mode_s).icao_cache.address_was_recently_seen((*mm).addr);
                 if (*mm).crcok != 0 {
-                    add_recently_seen_icao_addr(&mut (*mode_s), (*mm).addr);
+                    (*mode_s).icao_cache.add_recently_seen_addr((*mm).addr);
                 }
             }
         }
@@ -402,7 +364,7 @@ unsafe fn decode_mode_s_message(
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
                 // DF 17 : if crc == 0 try to populate our ICAO addresses whitelist.
-                add_recently_seen_icao_addr(&mut (*mode_s), (*mm).addr);
+                (*mode_s).icao_cache.add_recently_seen_addr((*mm).addr);
             }
         }
         18 => {
@@ -416,7 +378,7 @@ unsafe fn decode_mode_s_message(
             (*mm).crcok = (0 as c_int as c_uint == (*mm).crc) as c_int;
             if (*mm).crcok != 0 {
                 // DF 18 : if crc == 0 try to populate our ICAO addresses whitelist.
-                add_recently_seen_icao_addr(&mut (*mode_s), (*mm).addr);
+                (*mode_s).icao_cache.add_recently_seen_addr((*mm).addr);
             }
         }
         _ => {
@@ -424,7 +386,7 @@ unsafe fn decode_mode_s_message(
             // Compare the checksum with the whitelist of recently seen ICAO
             // addresses. If it matches one, then declare the message as valid
             (*mm).addr = (*mm).crc;
-            (*mm).crcok = icao_address_was_recently_seen(&(*mode_s), (*mm).addr)
+            (*mm).crcok = (*mode_s).icao_cache.address_was_recently_seen((*mm).addr)
         }
     }
 
