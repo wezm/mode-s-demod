@@ -377,7 +377,7 @@ pub unsafe fn modes_init_error_info_impl(bit_error_table: &mut [ErrorInfo], nfix
         let mask0: c_int = (1 as c_int) << 7 as c_int - (i & 7 as c_int);
         // revert error0
         msg[bytepos0 as usize] = (msg[bytepos0 as usize] as c_int ^ mask0) as c_uchar; // create error0
-        crc = mode_s_checksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // single bit error case
+        crc = mode_s_checksum(msg, MODES_LONG_MSG_BITS); // single bit error case
         bit_error_table[n as usize].syndrome = crc;
         bit_error_table[n as usize].bits = 1 as c_int;
         bit_error_table[n as usize].pos[0 as c_int as usize] = i;
@@ -390,7 +390,7 @@ pub unsafe fn modes_init_error_info_impl(bit_error_table: &mut [ErrorInfo], nfix
                 let mask1: c_int = (1 as c_int) << 7 as c_int - (j & 7 as c_int);
                 // revert error1
                 msg[bytepos1 as usize] = (msg[bytepos1 as usize] as c_int ^ mask1) as c_uchar; // create error1
-                crc = mode_s_checksum(msg.as_mut_ptr(), MODES_LONG_MSG_BITS); // two bit error case
+                crc = mode_s_checksum(msg, MODES_LONG_MSG_BITS); // two bit error case
                 if n >= bit_error_table.len() as c_int {
                     break;
                 }

@@ -85,34 +85,39 @@ pub struct ErrorInfo {
     pub pos: [c_int; 2],
 }
 
-// TODO: Change input to have a known length so we can get rid of pointer derefs and unsafe
-pub(crate) unsafe fn mode_s_checksum(mut msg: *mut c_uchar, mut bits: c_int) -> u32 {
+// TODO: capture the size of the message in a type. E.g. enum Message { Short(7 bytes), Long(14 bytes) }
+pub(crate) fn mode_s_checksum(msg: [u8; MODES_LONG_MSG_BYTES], mut bits: c_int) -> u32 {
+    // extract checksum supplied with message, 24-bits, last 3 bytes
+    let rem = if bits == 112 {
+        (msg[11] as u32) << 16 | (msg[12] as u32) << 8 | msg[13] as u32
+    } else {
+        (msg[4] as u32) << 16 | (msg[5] as u32) << 8 | msg[6] as u32
+    };
     let mut crc: u32 = 0;
     let mut offset = if bits == 112 { 0 } else { 112 - 56 };
-    let mut the_byte: u8 = *msg;
-    let mut j: c_int = 0;
+    let mut byte_offset = 0;
+    let mut the_byte: u8 = msg[0];
+    let mut bit: c_int = 0;
 
-    // We don't really need to include the checksum itself
+    // We don't include the checksum itself
     bits -= 24;
-    while j < bits {
-        if j & 7 == 0 {
-            let fresh0 = msg;
-            msg = msg.offset(1);
-            the_byte = *fresh0
+    while bit < bits {
+        if bit & 7 == 0 {
+            the_byte = msg[byte_offset];
+            byte_offset += 1;
         }
+
         // If bit is set, xor with corresponding table entry.
-        if the_byte as c_int & 0x80 != 0 {
-            crc ^= MODES_CHECKSUM_TABLE[offset] // FIXME: bounds
-        } // message checksum
+        if the_byte & 0x80 != 0 {
+            crc ^= MODES_CHECKSUM_TABLE[offset] // FIXME: bounds?
+        }
+
         offset += 1;
-        the_byte = ((the_byte as c_int) << 1 as c_int) as u8;
-        j += 1
+        the_byte = the_byte << 1;
+        bit += 1
     }
 
-    let rem = ((*msg.offset(0) as c_int) << 16 as c_int
-        | (*msg.offset(1) as c_int) << 8 as c_int
-        | *msg.offset(2) as c_int) as u32;
-    return (crc ^ rem) & 0xffffff as c_int as c_uint; // 24 bit checksum syndrome.
+    (crc ^ rem) & 0xffffff // 24 bit checksum syndrome.
 }
 
 // Given the Downlink Format (DF) of the message, return the message length in bits.
@@ -136,14 +141,14 @@ fn mode_s_message_len_by_type(type_: c_int) -> c_int {
 // Return number of fixed bits.
 //
 unsafe fn fix_bit_errors(
-    msg: *mut c_uchar,
+    msg: &mut [u8; MODES_LONG_MSG_BYTES],
     bits: c_int,
     maxfix: c_int,
     fixedbits: *mut c_char,
     bit_error_table: &[ErrorInfo],
 ) -> c_int {
     let mut bitpos;
-    let syndrome = mode_s_checksum(msg, bits);
+    let syndrome = mode_s_checksum(*msg, bits);
     let ei = match bit_error_table.binary_search_by(|e| e.syndrome.cmp(&syndrome)) {
         Ok(index) => &bit_error_table[index],
         Err(_) => return 0, // No syndrome found
@@ -170,7 +175,7 @@ unsafe fn fix_bit_errors(
     i = res;
     while i < ei.bits {
         bitpos = ei.pos[i as usize] - offset;
-        let ref mut fresh1 = *msg.offset((bitpos >> 3 as c_int) as isize);
+        let ref mut fresh1 = msg[(bitpos >> 3) as usize];
         *fresh1 =
             (*fresh1 as c_int ^ (1 as c_int) << 7 as c_int - (bitpos & 7 as c_int)) as c_uchar;
         if !fixedbits.is_null() {
@@ -301,7 +306,7 @@ unsafe fn decode_mode_s_message(
     // Get the message type ASAP as other operations depend on this
     (*mm).msgtype = c_int::from(*msg.offset(0)) >> 3; // Downlink Format
     (*mm).msgbits = mode_s_message_len_by_type((*mm).msgtype);
-    (*mm).crc = mode_s_checksum(msg, (*mm).msgbits);
+    (*mm).crc = mode_s_checksum((*mm).msg, (*mm).msgbits);
 
     if (*mm).crc != 0 && (*mode_s).nfix_crc != 0 && ((*mm).msgtype == 17 || (*mm).msgtype == 18) {
         //  if ((mm->crc) && (Modes.nfix_crc) && ((mm->msgtype == 11) || (mm->msgtype == 17))) {
@@ -316,7 +321,7 @@ unsafe fn decode_mode_s_message(
         // IID against known good IID's. That's a TODO.
         //
         (*mm).correctedbits = fix_bit_errors(
-            msg,
+            &mut (*mm).msg,
             (*mm).msgbits,
             (*mode_s).nfix_crc,
             (*mm).corrected.as_mut_ptr(),
@@ -2469,5 +2474,33 @@ mod tests {
             &format_raw_message(&mode_s, &mm),
             "*8d4d2023991094ad487c14fc9e3d;"
         );
+    }
+
+    #[test]
+    fn test_mode_s_checksum() {
+        let crc = mode_s_checksum(
+            [141, 124, 106, 87, 88, 15, 138, 214, 205, 218, 12, 36, 8, 66],
+            112,
+        );
+        assert_eq!(crc, 0);
+        let crc = mode_s_checksum(
+            [
+                93, 124, 106, 87, 253, 220, 242, 214, 205, 218, 12, 36, 8, 66,
+            ],
+            112,
+        );
+        assert_eq!(crc, 10540941);
+        let crc = mode_s_checksum(
+            [
+                143, 77, 32, 35, 88, 117, 240, 185, 87, 153, 244, 39, 139, 226,
+            ],
+            112,
+        );
+        assert_eq!(crc, 0);
+        let crc = mode_s_checksum(
+            [95, 77, 32, 35, 45, 175, 0, 185, 61, 153, 252, 173, 217, 159],
+            112,
+        );
+        assert_eq!(crc, 11946508);
     }
 }
