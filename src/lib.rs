@@ -16,7 +16,6 @@ pub const MODES_NET_SNDBUF_MAX: c_int = 7;
 const MODES_USER_LONGITUDE_DFLT: c_double = 0.0f64;
 const MODES_USER_LATITUDE_DFLT: c_double = 0.0f64;
 const MODES_INTERACTIVE_DISPLAY_TTL: c_int = 60 as c_int;
-const MODES_NET_HEARTBEAT_RATE: c_int = 900 as c_int;
 pub const MODES_USER_LATLON_VALID: c_int = (1 as c_int) << 0 as c_int;
 pub const MODES_ASYNC_BUF_SIZE: usize = 16 * 16384; // 256k
 pub const MODES_ASYNC_BUF_SAMPLES: usize = MODES_ASYNC_BUF_SIZE / 2; // Each sample is 2 bytes
