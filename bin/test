@@ -3,7 +3,7 @@
 set -ex
 
 cargo build
-./target/debug/ten-ninety --aggressive --phase-enhance --ifile tests/files/modes1.bin > tests/files/modes1.out
-./target/debug/ten-ninety --aggressive --phase-enhance --ifile tests/files/2020-10-03-mel.bin > tests/files/2020-10-03-mel.out
+./target/debug/mode-s-demod --aggressive --phase-enhance --ifile tests/files/modes1.bin > tests/files/modes1.out
+./target/debug/mode-s-demod --aggressive --phase-enhance --ifile tests/files/2020-10-03-mel.bin > tests/files/2020-10-03-mel.out
 diff -u tests/files/modes1.exp tests/files/modes1.out
 diff -u tests/files/2020-10-03-mel.exp tests/files/2020-10-03-mel.out

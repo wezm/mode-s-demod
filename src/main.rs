@@ -7,12 +7,12 @@ use std::fs::File;
 use std::io::Read;
 use std::{env, io, mem, process};
 
-use ten_ninety::{
+use mode_s_demod::{
     compute_magnitude_vector, detect_mode_s, MODES_ASYNC_BUF_SAMPLES, MODES_ASYNC_BUF_SIZE,
 };
 
 fn main() -> Result<(), io::Error> {
-    let (mut state, bit_error_table) = ten_ninety::modes_init();
+    let (mut state, bit_error_table) = mode_s_demod::modes_init();
 
     let ifile = match env::args().skip(1).find(|arg| !arg.starts_with("--")) {
         Some(path) => path,

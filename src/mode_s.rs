@@ -1591,7 +1591,7 @@ pub unsafe fn detect_mode_s(
             (*mode_s).stat_out_of_phase = (*mode_s).stat_out_of_phase.wrapping_add(1);
             p_payload = aux.as_mut_ptr().offset(1 + MODES_PREAMBLE_SAMPLES as isize) as *mut u16;
             current_block_183 = 6450636197030046351;
-            // TODO ... apply other kind of corrections
+            // TODO(inherited): ... apply other kind of corrections
         }
 
         match current_block_183 {
