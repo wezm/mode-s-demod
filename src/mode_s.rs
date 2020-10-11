@@ -1343,21 +1343,23 @@ fn clamped_scale(v: u16, scale: u16) -> u16 {
 // modifies the sample value of the *adjacent* sample which will
 // contain some of the energy from the bit we just inspected.
 //
-// p_payload[0] should be the start of the preamble,
-// p_payload[-1 .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] should be accessible.
-// p_payload[MODES_PREAMBLE_SAMPLES .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] will be updated.
-unsafe fn apply_phase_correction(p_payload: *mut u16) {
-    // we expect 1 bits at 0, 2, 7, 9
-    // and 0 bits at -1, 1, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14
-    // use bits -1,6 for early detection (bit 0/7 arrived a little early, our sample period starts after the bit phase so we include some of the next bit)
-    // use bits 3,10 for late detection (bit 2/9 arrived a little late, our sample period starts before the bit phase so we include some of the last bit)
+// p_payload[1] should be the start of the preamble,
+// p_payload[0 .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES] should be accessible.
+// p_payload[1 .. MODES_PREAMBLE_SAMPLES .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES] will be updated.
+fn apply_phase_correction(payload: &mut [u16]) {
+    // we expect 1 bits at 1, 3, 8, 10
+    // and 0 bits at 0, 2, 4, 5, 6, 7, 9, 11, 12, 13, 14, 15
+    // use bits 0,7 for early detection (bit 1/8 arrived a little early, our sample period starts
+    // after the bit phase so we include some of the next bit).
+    // use bits 4,11 for late detection (bit 3/10 arrived a little late, our sample period starts
+    // before the bit phase so we include some of the last bit).
 
-    let on_time: u32 = *p_payload.offset(0) as u32
-        + *p_payload.offset(2) as u32
-        + *p_payload.offset(7) as u32
-        + *p_payload.offset(9) as u32;
-    let early: u32 = (*p_payload.offset(-1) as u32 + *p_payload.offset(6) as u32) << 1;
-    let late: u32 = (*p_payload.offset(3) as u32 + *p_payload.offset(10) as u32) << 1;
+    let on_time: u32 =
+        payload[1] as u32 + payload[3] as u32 + payload[8] as u32 + payload[10] as u32;
+    let early: u32 = (payload[0] as u32 + payload[7] as u32) << 1;
+    let late: u32 = (payload[4] as u32 + payload[11] as u32) << 1;
+
+    let payload = &mut payload[1..];
 
     if early > late {
         // Our sample period starts late and so includes some of the next bit.
@@ -1365,24 +1367,21 @@ unsafe fn apply_phase_correction(p_payload: *mut u16) {
         let scale_down: u16 = u16::try_from(16384u32 - 16384 * early / (early + on_time)).unwrap(); // 1 - early / (early+onTime)
 
         // trailing bits are 0; final data sample will be a bit low.
-        *p_payload.offset((MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1) as isize) =
-            clamped_scale(
-                *p_payload.offset((MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1) as isize),
-                scale_up,
-            );
+        payload[(MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1)] = clamped_scale(
+            payload[(MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1) as usize],
+            scale_up,
+        );
 
         let mut j = MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2;
         while j > MODES_PREAMBLE_SAMPLES {
-            if *p_payload.offset(j as isize) > *p_payload.offset((j + 1) as isize) {
+            if payload[j] > payload[j + 1] {
                 // x [1 0] y
                 // x overlapped with the "1" bit and is slightly high
-                *p_payload.offset((j - 1) as isize) =
-                    clamped_scale(*p_payload.offset(j as isize - 1), scale_down)
+                payload[j - 1] = clamped_scale(payload[j - 1], scale_down)
             } else {
                 // x [0 1] y
                 // x overlapped with the "0" bit and is slightly low
-                *p_payload.offset((j - 1) as isize) =
-                    clamped_scale(*p_payload.offset(j as isize - 1), scale_up)
+                payload[j - 1] = clamped_scale(payload[j - 1], scale_up)
             }
             j -= 2
         }
@@ -1392,20 +1391,18 @@ unsafe fn apply_phase_correction(p_payload: *mut u16) {
         let scale_down: u16 = u16::try_from(16384u32 - 16384 * late / (late + on_time)).unwrap(); // 1 - late / (late+onTime)
 
         // leading bits are 0; first data sample will be a bit low.
-        *p_payload.offset(MODES_PREAMBLE_SAMPLES as isize) =
-            clamped_scale(*p_payload.offset(MODES_PREAMBLE_SAMPLES as isize), scale_up);
+        payload[(MODES_PREAMBLE_SAMPLES)] =
+            clamped_scale(payload[MODES_PREAMBLE_SAMPLES], scale_up);
         let mut j = MODES_PREAMBLE_SAMPLES;
         while j < MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2 {
-            if *p_payload.offset(j as isize) as c_int > *p_payload.offset(j as isize + 1) as c_int {
+            if payload[j] as c_int > payload[(j + 1)] as c_int {
                 // x [1 0] y
                 // y overlapped with the "0" bit and is slightly low
-                *p_payload.offset(j as isize + 2) =
-                    clamped_scale(*p_payload.offset(j as isize + 2), scale_up)
+                payload[(j + 2)] = clamped_scale(payload[(j + 2)], scale_up)
             } else {
                 // x [0 1] y
                 // y overlapped with the "1" bit and is slightly high
-                *p_payload.offset(j as isize + 2) =
-                    clamped_scale(*p_payload.offset(j as isize + 2), scale_down)
+                payload[(j + 2)] = clamped_scale(payload[(j + 2)], scale_down)
             }
             j += 2
         }
@@ -1426,7 +1423,6 @@ pub unsafe fn detect_mode_s(
     let mut mm: ModesMessage = ModesMessage::default();
     let mut msg = [0; MODES_LONG_MSG_BYTES];
     let mut p_msg: *mut c_uchar;
-    let mut aux = [0; MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES + 1];
     let mut use_correction: c_int = 0;
     let mut current_block_183: u64;
     // The Mode S preamble is made of impulses of 0.5 microseconds at
@@ -1587,9 +1583,11 @@ pub unsafe fn detect_mode_s(
             // If the previous attempt with this message failed, retry using
             // magnitude correction
             // Make a copy of the Payload, and phase correct the copy
+            let mut aux = [0; MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES + 1];
             let src = &m_slice[usize::try_from(j - 1).unwrap()..];
-            ptr::copy_nonoverlapping(src.as_ptr(), aux.as_mut_ptr(), aux.len()); // FIXME: do this without ptr::
-            apply_phase_correction(&mut *aux.as_mut_ptr().offset(1));
+            let src = &src[..aux.len()];
+            aux.copy_from_slice(src);
+            apply_phase_correction(&mut aux);
             (*mode_s).stat_out_of_phase = (*mode_s).stat_out_of_phase.wrapping_add(1);
             p_payload = aux.as_mut_ptr().offset(1 + MODES_PREAMBLE_SAMPLES as isize) as *mut u16;
             current_block_183 = 6450636197030046351;
