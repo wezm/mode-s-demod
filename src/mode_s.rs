@@ -79,7 +79,7 @@ const MODES_CHECKSUM_TABLE: [u32; 112] = [
 //
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 #[repr(C)]
-pub struct errorinfo {
+pub struct ErrorInfo {
     pub syndrome: u32,
     pub bits: c_int,
     pub pos: [c_int; 2],
@@ -140,7 +140,7 @@ unsafe fn fix_bit_errors(
     bits: c_int,
     maxfix: c_int,
     fixedbits: *mut c_char,
-    bit_error_table: &[errorinfo],
+    bit_error_table: &[ErrorInfo],
 ) -> c_int {
     let mut bitpos;
     let syndrome = mode_s_checksum(msg, bits);
@@ -292,7 +292,7 @@ unsafe fn decode_mode_s_message(
     mut mm: *mut ModesMessage,
     msg: *const c_uchar,
     mode_s: *mut ModeS,
-    bit_errors: &[errorinfo],
+    bit_errors: &[ErrorInfo],
 ) {
     // Work on our local copy
     ptr::copy_nonoverlapping(msg, (*mm).msg.as_mut_ptr(), MODES_LONG_MSG_BYTES as usize);
@@ -1453,7 +1453,7 @@ pub unsafe fn detect_mode_s(
     m_slice: &mut [u16],
     mlen: u32,
     mode_s: &mut ModeS,
-    bit_errors: &[errorinfo],
+    bit_errors: &[ErrorInfo],
 ) {
     let m = m_slice.as_mut_ptr();
     let mut mm: ModesMessage = ModesMessage::default();
