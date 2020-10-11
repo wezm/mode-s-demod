@@ -140,52 +140,53 @@ fn mode_s_message_len_by_type(type_: c_int) -> c_int {
 // must be of length at least maxcorrected.
 // Return number of fixed bits.
 //
-unsafe fn fix_bit_errors(
-    msg: &mut [u8; MODES_LONG_MSG_BYTES],
-    bits: c_int,
-    maxfix: c_int,
-    fixedbits: *mut c_char,
-    bit_error_table: &[ErrorInfo],
-) -> c_int {
-    let mut bitpos;
-    let syndrome = mode_s_checksum(*msg, bits);
+fn fix_bit_errors(mm: &mut ModesMessage, maxfix: c_int, bit_error_table: &[ErrorInfo]) {
+    let bits = mm.msgbits;
+    let syndrome = mode_s_checksum(mm.msg, bits);
     let ei = match bit_error_table.binary_search_by(|e| e.syndrome.cmp(&syndrome)) {
         Ok(index) => &bit_error_table[index],
-        Err(_) => return 0, // No syndrome found
+        Err(_) => {
+            // No syndrome found
+            mm.correctedbits = 0;
+            return;
+        }
     };
 
-    // Check if the syndrome fixes more bits than we allow
-    if maxfix < ei.bits {
-        return 0;
-    }
+    // TODO: Clean up this closure workaround
+    mm.correctedbits = (|| {
+        let mut bitpos;
 
-    // Check that all bit positions lie inside the message length
-    let offset = MODES_LONG_MSG_BITS - bits;
-    let mut i = 0 as c_int;
-    while i < ei.bits {
-        bitpos = ei.pos[i as usize] - offset;
-        if bitpos < 0 as c_int || bitpos >= bits {
-            return 0 as c_int;
+        // Check if the syndrome fixes more bits than we allow
+        if maxfix < ei.bits {
+            return 0;
         }
-        i += 1
-    }
 
-    // Fix the bits
-    let mut res = 0 as c_int;
-    i = res;
-    while i < ei.bits {
-        bitpos = ei.pos[i as usize] - offset;
-        let ref mut fresh1 = msg[(bitpos >> 3) as usize];
-        *fresh1 =
-            (*fresh1 as c_int ^ (1 as c_int) << 7 as c_int - (bitpos & 7 as c_int)) as c_uchar;
-        if !fixedbits.is_null() {
+        // Check that all bit positions lie inside the message length
+        let offset = MODES_LONG_MSG_BITS - bits;
+        let mut i = 0 as c_int;
+        while i < ei.bits {
+            bitpos = ei.pos[i as usize] - offset;
+            if bitpos < 0 as c_int || bitpos >= bits {
+                return 0 as c_int;
+            }
+            i += 1
+        }
+
+        // Fix the bits
+        let mut res = 0 as c_int;
+        i = res;
+        while i < ei.bits {
+            bitpos = ei.pos[i as usize] - offset;
+            let ref mut fresh1 = mm.msg[(bitpos >> 3) as usize];
+            *fresh1 =
+                (*fresh1 as c_int ^ (1 as c_int) << 7 as c_int - (bitpos & 7 as c_int)) as c_uchar;
             let fresh2 = res;
             res = res + 1;
-            *fixedbits.offset(fresh2 as isize) = bitpos as c_char
+            mm.corrected[fresh2 as usize] = bitpos as c_char;
+            i += 1
         }
-        i += 1
-    }
-    return res;
+        return res;
+    })();
 }
 
 // In the squawk (identity) field bits are interleaved as follows in
@@ -319,15 +320,7 @@ fn decode_mode_s_message(
         // using the results. Perhaps check the ICAO against known Aircraft, and check
         // IID against known good IID's. That's a TODO.
         //
-        mm.correctedbits = unsafe {
-            fix_bit_errors(
-                &mut mm.msg,
-                mm.msgbits,
-                mode_s.nfix_crc,
-                mm.corrected.as_mut_ptr(),
-                bit_errors,
-            )
-        };
+        fix_bit_errors(mm, mode_s.nfix_crc, bit_errors);
 
         // If we correct, validate ICAO addr to help filter birthday paradox solutions.
         if mm.correctedbits != 0 {
