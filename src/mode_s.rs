@@ -1768,7 +1768,7 @@ pub unsafe fn detect_mode_s(
                     decode_mode_s_message(&mut mm, msg, mode_s, bit_errors);
 
                     // Update statistics
-                    if (*mode_s).enable_stats != 0 {
+                    if (*mode_s).enable_stats {
                         if mm.crcok != 0 || use_correction != 0 || mm.correctedbits != 0 {
                             if use_correction != 0 {
                                 match errors {

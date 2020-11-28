@@ -142,7 +142,7 @@ pub struct ModeS {
     quiet: c_int,                     // Suppress stdout
     interactive: c_int,               // Interactive mode
     interactive_display_ttl: c_int,   // Interactive mode: TTL display
-    enable_stats: c_int,              // Print stats at exit in --ifile mode
+    enable_stats: bool,               // Print stats at exit in --ifile mode
     onlyaddr: c_int,                  // Print only ICAO addresses
     mlat: c_int, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
 
@@ -310,7 +310,7 @@ impl Default for ModeS {
             net_sndbuf_size: 0,
             quiet: 0,
             interactive: 0,
-            enable_stats: 0,
+            enable_stats: false,
             onlyaddr: 0,
             mlat: 0,
             interactive_display_ttl: MODES_INTERACTIVE_DISPLAY_TTL,
