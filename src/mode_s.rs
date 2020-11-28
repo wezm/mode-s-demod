@@ -1900,7 +1900,7 @@ pub unsafe fn detect_mode_s(
                 }
 
                 // Retry with phase correction if enabled, necessary and possible.
-                if (*mode_s).phase_enhance != 0
+                if (*mode_s).phase_enhance
                     && mm.crcok == 0
                     && mm.correctedbits == 0
                     && use_correction == 0

@@ -129,7 +129,7 @@ pub struct ModeS {
     beast_out_used: c_int,  // How much if the buffer is currently used
 
     // Configuration
-    phase_enhance: c_int,             // Enable phase enhancement if true
+    phase_enhance: bool,              // Enable phase enhancement if true
     nfix_crc: c_int,                  // Number of crc bit error(s) to correct
     check_crc: c_int,                 // Only display messages with good CRC
     raw: c_int,                       // Raw output format
@@ -336,7 +336,7 @@ impl Default for ModeS {
             beast_out: ptr::null_mut(),
             beast_out_used: 0,
 
-            phase_enhance: 0,
+            phase_enhance: false,
             nfix_crc: 0,
         }
     }
@@ -436,7 +436,7 @@ fn now() -> u64 {
 pub fn modes_init() -> (ModeS, [ErrorInfo; NERRORINFO]) {
     let mut state = ModeS {
         nfix_crc: MODES_MAX_BITERRORS as c_int, // --aggressive
-        phase_enhance: 1,                       // --phase-enhance
+        phase_enhance: true,                    // --phase-enhance
         ..Default::default()
     };
 
