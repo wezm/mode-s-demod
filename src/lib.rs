@@ -142,7 +142,7 @@ pub struct ModeS {
     quiet: c_int,                     // Suppress stdout
     interactive: c_int,               // Interactive mode
     interactive_display_ttl: c_int,   // Interactive mode: TTL display
-    stats: c_int,                     // Print stats at exit in --ifile mode
+    enable_stats: c_int,              // Print stats at exit in --ifile mode
     onlyaddr: c_int,                  // Print only ICAO addresses
     mlat: c_int, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
 
@@ -157,39 +157,44 @@ pub struct ModeS {
     // DF List mode
     b_enable_dflogging: c_int, // Set to enable DF Logging
 
-    // DF List mode
-    stat_valid_preamble: c_uint,
-    stat_demodulated0: c_uint,
-    stat_demodulated1: c_uint,
-    stat_demodulated2: c_uint,
-    stat_demodulated3: c_uint,
-    stat_goodcrc: c_uint,
-    stat_badcrc: c_uint,
-    stat_fixed: c_uint,
-
-    // Histogram of fixed bit errors: index 0 for single bit errors,
-    // index 1 for double bit errors etc.
-    stat_bit_fix: [c_uint; MODES_MAX_BITERRORS],
-
-    stat_out_of_phase: c_uint,
-    stat_ph_demodulated0: c_uint,
-    stat_ph_demodulated1: c_uint,
-    stat_ph_demodulated2: c_uint,
-    stat_ph_demodulated3: c_uint,
-    stat_ph_goodcrc: c_uint,
-    stat_ph_badcrc: c_uint,
-    stat_ph_fixed: c_uint,
-    // Histogram of fixed bit errors: index 0 for single bit errors,
-    // index 1 for double bit errors etc.
-    stat_ph_bit_fix: [c_uint; MODES_MAX_BITERRORS],
-
-    stat_df_len_corrected: c_uint,
-    stat_df_type_corrected: c_uint,
-    stat_mode_ac: c_uint,
+    stats: Stats,
 }
 
 struct ICAOCache {
     cache: Box<[(u32, Instant); MODES_ICAO_CACHE_LEN as usize]>,
+}
+
+/// Various stats and counters
+struct Stats {
+    // DF List mode
+    valid_preamble: c_uint,
+    demodulated0: c_uint,
+    demodulated1: c_uint,
+    demodulated2: c_uint,
+    demodulated3: c_uint,
+    goodcrc: c_uint,
+    badcrc: c_uint,
+    fixed: c_uint,
+
+    // Histogram of fixed bit errors: index 0 for single bit errors,
+    // index 1 for double bit errors etc.
+    bit_fix: [c_uint; MODES_MAX_BITERRORS],
+
+    out_of_phase: c_uint,
+    ph_demodulated0: c_uint,
+    ph_demodulated1: c_uint,
+    ph_demodulated2: c_uint,
+    ph_demodulated3: c_uint,
+    ph_goodcrc: c_uint,
+    ph_badcrc: c_uint,
+    ph_fixed: c_uint,
+    // Histogram of fixed bit errors: index 0 for single bit errors,
+    // index 1 for double bit errors etc.
+    ph_bit_fix: [c_uint; MODES_MAX_BITERRORS],
+
+    df_len_corrected: c_uint,
+    df_type_corrected: c_uint,
+    mode_ac: c_uint,
 }
 
 #[derive(Clone, Default)]
@@ -305,7 +310,7 @@ impl Default for ModeS {
             net_sndbuf_size: 0,
             quiet: 0,
             interactive: 0,
-            stats: 0,
+            enable_stats: 0,
             onlyaddr: 0,
             mlat: 0,
             interactive_display_ttl: MODES_INTERACTIVE_DISPLAY_TTL,
@@ -315,27 +320,7 @@ impl Default for ModeS {
             b_user_flags: 0,
             aircrafts: Vec::new(),
             b_enable_dflogging: 0,
-            stat_valid_preamble: 0,
-            stat_demodulated0: 0,
-            stat_demodulated1: 0,
-            stat_demodulated2: 0,
-            stat_demodulated3: 0,
-            stat_goodcrc: 0,
-            stat_badcrc: 0,
-            stat_fixed: 0,
-            stat_bit_fix: [0; MODES_MAX_BITERRORS],
-            stat_out_of_phase: 0,
-            stat_ph_demodulated0: 0,
-            stat_ph_demodulated1: 0,
-            stat_ph_demodulated2: 0,
-            stat_ph_demodulated3: 0,
-            stat_ph_goodcrc: 0,
-            stat_ph_badcrc: 0,
-            stat_ph_fixed: 0,
-            stat_ph_bit_fix: [0; MODES_MAX_BITERRORS],
-            stat_df_len_corrected: 0,
-            stat_df_type_corrected: 0,
-            stat_mode_ac: 0,
+            stats: Stats::default(),
             icao_cache: ICAOCache::new(),
             magnitude: vec![
                 0;
@@ -353,6 +338,34 @@ impl Default for ModeS {
 
             phase_enhance: 0,
             nfix_crc: 0,
+        }
+    }
+}
+
+impl Default for Stats {
+    fn default() -> Self {
+        Stats {
+            valid_preamble: 0,
+            demodulated0: 0,
+            demodulated1: 0,
+            demodulated2: 0,
+            demodulated3: 0,
+            goodcrc: 0,
+            badcrc: 0,
+            fixed: 0,
+            bit_fix: [0; MODES_MAX_BITERRORS],
+            out_of_phase: 0,
+            ph_demodulated0: 0,
+            ph_demodulated1: 0,
+            ph_demodulated2: 0,
+            ph_demodulated3: 0,
+            ph_goodcrc: 0,
+            ph_badcrc: 0,
+            ph_fixed: 0,
+            ph_bit_fix: [0; MODES_MAX_BITERRORS],
+            df_len_corrected: 0,
+            df_type_corrected: 0,
+            mode_ac: 0,
         }
     }
 }

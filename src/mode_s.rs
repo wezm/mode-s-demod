@@ -1489,7 +1489,7 @@ pub unsafe fn detect_mode_s(
                     // Pass data to the next layer
                     use_modes_message(mode_s, &mut mm);
                     j += MODEAC_MSG_SAMPLES;
-                    (*mode_s).stat_mode_ac = (*mode_s).stat_mode_ac.wrapping_add(1);
+                    (*mode_s).stats.mode_ac = (*mode_s).stats.mode_ac.wrapping_add(1);
                     current_block_183 = 735147466149431745;
                 } else {
                     current_block_183 = 7175849428784450219;
@@ -1572,8 +1572,8 @@ pub unsafe fn detect_mode_s(
                             }
                             current_block_183 = 735147466149431745;
                         } else {
-                            (*mode_s).stat_valid_preamble =
-                                (*mode_s).stat_valid_preamble.wrapping_add(1);
+                            (*mode_s).stats.valid_preamble =
+                                (*mode_s).stats.valid_preamble.wrapping_add(1);
                             current_block_183 = 6450636197030046351;
                         }
                     }
@@ -1588,7 +1588,7 @@ pub unsafe fn detect_mode_s(
             let src = &src[..aux.len()];
             aux.copy_from_slice(src);
             apply_phase_correction(&mut aux);
-            (*mode_s).stat_out_of_phase = (*mode_s).stat_out_of_phase.wrapping_add(1);
+            (*mode_s).stats.out_of_phase = (*mode_s).stats.out_of_phase.wrapping_add(1);
             p_payload = aux.as_mut_ptr().offset(1 + MODES_PREAMBLE_SAMPLES as isize) as *mut u16;
             current_block_183 = 6450636197030046351;
             // TODO(inherited): ... apply other kind of corrections
@@ -1693,8 +1693,8 @@ pub unsafe fn detect_mode_s(
                             msg[0] = (msg[0] as c_int ^ the_errs as c_int) as c_uchar;
                             errors_ty = 0;
                             errors = errors56;
-                            (*mode_s).stat_df_len_corrected =
-                                (*mode_s).stat_df_len_corrected.wrapping_add(1);
+                            (*mode_s).stats.df_len_corrected =
+                                (*mode_s).stats.df_len_corrected.wrapping_add(1);
                         } else if i < MODES_LONG_MSG_BITS {
                             msglen = MODES_SHORT_MSG_BITS;
                             errors = errors56
@@ -1737,8 +1737,8 @@ pub unsafe fn detect_mode_s(
                         if valid_dfbits & this_dfbit != 0 {
                             // Yep, more likely, so update the main message
                             msg[0 as c_int as usize] = the_byte;
-                            (*mode_s).stat_df_type_corrected =
-                                (*mode_s).stat_df_type_corrected.wrapping_add(1);
+                            (*mode_s).stats.df_type_corrected =
+                                (*mode_s).stats.df_type_corrected.wrapping_add(1);
                             errors -= 1
                             // decrease the error count so we attempt to use the modified DF.
                         }
@@ -1768,44 +1768,44 @@ pub unsafe fn detect_mode_s(
                     decode_mode_s_message(&mut mm, msg, mode_s, bit_errors);
 
                     // Update statistics
-                    if (*mode_s).stats != 0 {
+                    if (*mode_s).enable_stats != 0 {
                         if mm.crcok != 0 || use_correction != 0 || mm.correctedbits != 0 {
                             if use_correction != 0 {
                                 match errors {
                                     0 => {
-                                        (*mode_s).stat_ph_demodulated0 =
-                                            (*mode_s).stat_ph_demodulated0.wrapping_add(1)
+                                        (*mode_s).stats.ph_demodulated0 =
+                                            (*mode_s).stats.ph_demodulated0.wrapping_add(1)
                                     }
                                     1 => {
-                                        (*mode_s).stat_ph_demodulated1 =
-                                            (*mode_s).stat_ph_demodulated1.wrapping_add(1)
+                                        (*mode_s).stats.ph_demodulated1 =
+                                            (*mode_s).stats.ph_demodulated1.wrapping_add(1)
                                     }
                                     2 => {
-                                        (*mode_s).stat_ph_demodulated2 =
-                                            (*mode_s).stat_ph_demodulated2.wrapping_add(1)
+                                        (*mode_s).stats.ph_demodulated2 =
+                                            (*mode_s).stats.ph_demodulated2.wrapping_add(1)
                                     }
                                     _ => {
-                                        (*mode_s).stat_ph_demodulated3 =
-                                            (*mode_s).stat_ph_demodulated3.wrapping_add(1)
+                                        (*mode_s).stats.ph_demodulated3 =
+                                            (*mode_s).stats.ph_demodulated3.wrapping_add(1)
                                     }
                                 }
                             } else {
                                 match errors {
                                     0 => {
-                                        (*mode_s).stat_demodulated0 =
-                                            (*mode_s).stat_demodulated0.wrapping_add(1)
+                                        (*mode_s).stats.demodulated0 =
+                                            (*mode_s).stats.demodulated0.wrapping_add(1)
                                     }
                                     1 => {
-                                        (*mode_s).stat_demodulated1 =
-                                            (*mode_s).stat_demodulated1.wrapping_add(1)
+                                        (*mode_s).stats.demodulated1 =
+                                            (*mode_s).stats.demodulated1.wrapping_add(1)
                                     }
                                     2 => {
-                                        (*mode_s).stat_demodulated2 =
-                                            (*mode_s).stat_demodulated2.wrapping_add(1)
+                                        (*mode_s).stats.demodulated2 =
+                                            (*mode_s).stats.demodulated2.wrapping_add(1)
                                     }
                                     _ => {
-                                        (*mode_s).stat_demodulated3 =
-                                            (*mode_s).stat_demodulated3.wrapping_add(1)
+                                        (*mode_s).stats.demodulated3 =
+                                            (*mode_s).stats.demodulated3.wrapping_add(1)
                                     }
                                 }
                             }
@@ -1813,35 +1813,37 @@ pub unsafe fn detect_mode_s(
                             if mm.correctedbits == 0 as c_int {
                                 if use_correction != 0 {
                                     if mm.crcok != 0 {
-                                        (*mode_s).stat_ph_goodcrc =
-                                            (*mode_s).stat_ph_goodcrc.wrapping_add(1)
+                                        (*mode_s).stats.ph_goodcrc =
+                                            (*mode_s).stats.ph_goodcrc.wrapping_add(1)
                                     } else {
-                                        (*mode_s).stat_ph_badcrc =
-                                            (*mode_s).stat_ph_badcrc.wrapping_add(1)
+                                        (*mode_s).stats.ph_badcrc =
+                                            (*mode_s).stats.ph_badcrc.wrapping_add(1)
                                     }
                                 } else if mm.crcok != 0 {
-                                    (*mode_s).stat_goodcrc = (*mode_s).stat_goodcrc.wrapping_add(1)
+                                    (*mode_s).stats.goodcrc =
+                                        (*mode_s).stats.goodcrc.wrapping_add(1)
                                 } else {
-                                    (*mode_s).stat_badcrc = (*mode_s).stat_badcrc.wrapping_add(1)
+                                    (*mode_s).stats.badcrc = (*mode_s).stats.badcrc.wrapping_add(1)
                                 }
                             } else if use_correction != 0 {
-                                (*mode_s).stat_ph_badcrc = (*mode_s).stat_ph_badcrc.wrapping_add(1);
-                                (*mode_s).stat_ph_fixed = (*mode_s).stat_ph_fixed.wrapping_add(1);
+                                (*mode_s).stats.ph_badcrc =
+                                    (*mode_s).stats.ph_badcrc.wrapping_add(1);
+                                (*mode_s).stats.ph_fixed = (*mode_s).stats.ph_fixed.wrapping_add(1);
                                 if mm.correctedbits != 0
                                     && mm.correctedbits <= MODES_MAX_BITERRORS as c_int
                                 {
-                                    (*mode_s).stat_ph_bit_fix[(mm.correctedbits - 1) as usize] =
-                                        (*mode_s).stat_ph_bit_fix[(mm.correctedbits - 1) as usize]
+                                    (*mode_s).stats.ph_bit_fix[(mm.correctedbits - 1) as usize] =
+                                        (*mode_s).stats.ph_bit_fix[(mm.correctedbits - 1) as usize]
                                             .wrapping_add(1)
                                 }
                             } else {
-                                (*mode_s).stat_badcrc = (*mode_s).stat_badcrc.wrapping_add(1);
-                                (*mode_s).stat_fixed = (*mode_s).stat_fixed.wrapping_add(1);
+                                (*mode_s).stats.badcrc = (*mode_s).stats.badcrc.wrapping_add(1);
+                                (*mode_s).stats.fixed = (*mode_s).stats.fixed.wrapping_add(1);
                                 if mm.correctedbits != 0
                                     && mm.correctedbits <= MODES_MAX_BITERRORS as c_int
                                 {
-                                    (*mode_s).stat_bit_fix[(mm.correctedbits - 1) as usize] =
-                                        (*mode_s).stat_bit_fix[(mm.correctedbits - 1) as usize]
+                                    (*mode_s).stats.bit_fix[(mm.correctedbits - 1) as usize] =
+                                        (*mode_s).stats.bit_fix[(mm.correctedbits - 1) as usize]
                                             .wrapping_add(1)
                                 }
                             }
