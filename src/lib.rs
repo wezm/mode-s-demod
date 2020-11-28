@@ -135,10 +135,6 @@ pub struct ModeS {
     raw: bool,                        // Raw output format
     mode_ac: bool,                    // Enable decoding of SSR Modes A & C
     debug: c_int,                     // Debugging mode
-    net_output_raw_size: c_int,       // Minimum Size of the output raw data
-    net_output_raw_rate: c_int,       // Rate (in 64mS increments) of output raw data
-    net_output_raw_rate_count: c_int, // Rate (in 64mS increments) of output raw data
-    net_sndbuf_size: c_int,           // TCP output buffer size (64Kb * 2^n)
     quiet: bool,                      // Suppress stdout
     interactive: bool,                // Interactive mode
     interactive_display_ttl: c_int,   // Interactive mode: TTL display
@@ -304,10 +300,6 @@ impl Default for ModeS {
             raw: false,
             mode_ac: false,
             debug: 0,
-            net_output_raw_size: 0,
-            net_output_raw_rate: 0,
-            net_output_raw_rate_count: 0,
-            net_sndbuf_size: 0,
             quiet: false,
             interactive: false,
             enable_stats: false,
@@ -470,17 +462,6 @@ pub fn modes_init() -> (ModeS, [ErrorInfo; NERRORINFO]) {
     state.b_user_flags &= !MODES_USER_LATLON_VALID;
     if state.f_user_lat != 0.0f64 || state.f_user_lon != 0.0f64 {
         state.b_user_flags |= MODES_USER_LATLON_VALID
-    }
-
-    // Limit the maximum requested raw output size to less than one Ethernet Block
-    if state.net_output_raw_size > MODES_RAWOUT_BUF_SIZE as c_int - 200 {
-        state.net_output_raw_size = MODES_RAWOUT_BUF_FLUSH as c_int
-    }
-    if state.net_output_raw_rate > 1000 {
-        state.net_output_raw_rate = MODES_RAWOUT_BUF_RATE
-    }
-    if state.net_sndbuf_size > 7 {
-        state.net_sndbuf_size = MODES_NET_SNDBUF_MAX
     }
 
     // Each I and Q value varies from 0 to 255, which represents a range from -1 to +1. To get from the

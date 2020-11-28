@@ -1922,31 +1922,6 @@ pub unsafe fn detect_mode_s(
         }
         j = j.wrapping_add(1)
     }
-
-    // Send any remaining partial raw buffers now
-    if (*mode_s).raw_out_used != 0 || (*mode_s).beast_out_used != 0 {
-        (*mode_s).net_output_raw_rate_count += 1;
-        if (*mode_s).net_output_raw_rate_count > (*mode_s).net_output_raw_rate {
-            if (*mode_s).raw_out_used != 0 {
-                // modesSendAllClients(
-                //     (*Modes).ros,
-                //     (*Modes).raw_out as *mut c_void,
-                //     (*Modes).raw_out_used,
-                // );
-                (*mode_s).raw_out_used = 0 as c_int
-            }
-
-            if (*mode_s).beast_out_used != 0 {
-                // modesSendAllClients(
-                //     (*Modes).bos,
-                //     (*Modes).beast_out as *mut c_void,
-                //     (*Modes).beast_out_used,
-                // );
-                (*mode_s).beast_out_used = 0 as c_int
-            }
-            (*mode_s).net_output_raw_rate_count = 0 as c_int
-        }
-    }
 }
 
 // When a new message is available, because it was decoded from the RTL device,
