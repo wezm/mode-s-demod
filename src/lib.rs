@@ -131,20 +131,20 @@ pub struct ModeS {
     // Configuration
     phase_enhance: bool,              // Enable phase enhancement if true
     nfix_crc: c_int,                  // Number of crc bit error(s) to correct
-    check_crc: c_int,                 // Only display messages with good CRC
-    raw: c_int,                       // Raw output format
-    mode_ac: c_int,                   // Enable decoding of SSR Modes A & C
+    check_crc: bool,                  // Only display messages with good CRC
+    raw: bool,                        // Raw output format
+    mode_ac: bool,                    // Enable decoding of SSR Modes A & C
     debug: c_int,                     // Debugging mode
     net_output_raw_size: c_int,       // Minimum Size of the output raw data
     net_output_raw_rate: c_int,       // Rate (in 64mS increments) of output raw data
     net_output_raw_rate_count: c_int, // Rate (in 64mS increments) of output raw data
     net_sndbuf_size: c_int,           // TCP output buffer size (64Kb * 2^n)
-    quiet: c_int,                     // Suppress stdout
-    interactive: c_int,               // Interactive mode
+    quiet: bool,                      // Suppress stdout
+    interactive: bool,                // Interactive mode
     interactive_display_ttl: c_int,   // Interactive mode: TTL display
     enable_stats: bool,               // Print stats at exit in --ifile mode
-    onlyaddr: c_int,                  // Print only ICAO addresses
-    mlat: c_int, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
+    onlyaddr: bool,                   // Print only ICAO addresses
+    mlat: bool, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
 
     // User details
     f_user_lat: c_double, // Users receiver/antenna lat/lon needed for initial surface location
@@ -155,7 +155,7 @@ pub struct ModeS {
     aircrafts: Vec<Aircraft>,
 
     // DF List mode
-    b_enable_dflogging: c_int, // Set to enable DF Logging
+    b_enable_dflogging: bool, // Set to enable DF Logging
 
     stats: Stats,
 }
@@ -300,26 +300,26 @@ impl ICAOCache {
 impl Default for ModeS {
     fn default() -> Self {
         ModeS {
-            check_crc: 1,
-            raw: 0,
-            mode_ac: 0,
+            check_crc: true,
+            raw: false,
+            mode_ac: false,
             debug: 0,
             net_output_raw_size: 0,
             net_output_raw_rate: 0,
             net_output_raw_rate_count: 0,
             net_sndbuf_size: 0,
-            quiet: 0,
-            interactive: 0,
+            quiet: false,
+            interactive: false,
             enable_stats: false,
-            onlyaddr: 0,
-            mlat: 0,
+            onlyaddr: false,
+            mlat: false,
             interactive_display_ttl: MODES_INTERACTIVE_DISPLAY_TTL,
             f_user_lat: MODES_USER_LATITUDE_DFLT,
             f_user_lon: MODES_USER_LONGITUDE_DFLT,
 
             b_user_flags: 0,
             aircrafts: Vec::new(),
-            b_enable_dflogging: 0,
+            b_enable_dflogging: false,
             stats: Stats::default(),
             icao_cache: ICAOCache::new(),
             magnitude: vec![

@@ -391,7 +391,7 @@ fn decode_mode_s_message(
 
     // If we're checking CRC and the CRC is invalid, then we can't trust any
     // of the data contents, so save time and give up now.
-    if mode_s.check_crc != 0 && mm.crcok == 0 && mm.correctedbits == 0 {
+    if mode_s.check_crc && mm.crcok == 0 && mm.correctedbits == 0 {
         return;
     }
 
@@ -678,7 +678,7 @@ fn decode_mode_s_message(
 //
 fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
     // Handle only addresses mode first.
-    if mode_s.onlyaddr != 0 {
+    if mode_s.onlyaddr {
         println!("{:06x}", mm.addr);
         return; // Enough for --onlyaddr mode
     }
@@ -686,7 +686,7 @@ fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
     // Show the raw message.
     println!("{}", format_raw_message(mode_s, mm));
 
-    if mode_s.raw != 0 {
+    if mode_s.raw {
         let _ = io::stdout().flush();
         return; // Enough for --raw mode
     }
@@ -1168,7 +1168,7 @@ fn display_modes_message(mode_s: &ModeS, mm: &ModesMessage) {
 
 fn format_raw_message(mode_s: &ModeS, mm: &ModesMessage) -> String {
     let mut s = String::with_capacity(mm.msgbits as usize / 4);
-    if mode_s.mlat != 0 && mm.timestamp_msg != 0 {
+    if mode_s.mlat && mm.timestamp_msg != 0 {
         s.push('@');
         let bytes = mm.timestamp_msg.to_le_bytes();
         for byte in bytes[0..6].into_iter().rev() {
@@ -1475,7 +1475,7 @@ pub unsafe fn detect_mode_s(
         if use_correction == 0 {
             // This is not a re-try with phase correction
             // so try to find a new preamble
-            if (*mode_s).mode_ac != 0 {
+            if (*mode_s).mode_ac {
                 let mode_a = detect_mode_a(preamble, &mut mm);
                 if mode_a != 0 {
                     // We have found a valid mode_a/C in the data
@@ -1957,14 +1957,14 @@ pub unsafe fn detect_mode_s(
 // processing and visualization
 //
 fn use_modes_message(mode_s: &mut ModeS, mm: &mut ModesMessage) {
-    if mode_s.check_crc == 0 || mm.crcok != 0 || mm.correctedbits != 0 {
+    if !mode_s.check_crc || mm.crcok != 0 || mm.correctedbits != 0 {
         // not checking, ok or fixed
 
         // Always track Aircraft
         interactive_receive_data(mode_s, mm);
 
         // In non-interactive non-quiet mode, display messages on standard output
-        if mode_s.interactive == 0 && mode_s.quiet == 0 {
+        if !mode_s.interactive && !mode_s.quiet {
             display_modes_message(mode_s, mm);
         }
     };

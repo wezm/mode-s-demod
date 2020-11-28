@@ -22,7 +22,7 @@ const MODEAC_MSG_MODEC_HIT: c_int = (1 as c_int) << 3 as c_int;
 //
 pub(crate) fn interactive_receive_data(mode_s: &mut ModeS, mm: &mut ModesMessage) {
     // Return if (checking crc) AND (not crcok) AND (not fixed)
-    if mode_s.check_crc != 0 && mm.crcok == 0 && mm.correctedbits == 0 {
+    if mode_s.check_crc && mm.crcok == 0 && mm.correctedbits == 0 {
         return;
     }
 
@@ -186,7 +186,7 @@ pub(crate) fn interactive_receive_data(mode_s: &mut ModeS, mm: &mut ModesMessage
     }
 
     // If we are Logging DF's, and it's not a Mode A/C
-    if mode_s.b_enable_dflogging != 0 && (*mm).msgtype < 32 {
+    if mode_s.b_enable_dflogging && (*mm).msgtype < 32 {
         // FIXME; port this if needed
         // interactiveCreateDF(a, mm);
     }
