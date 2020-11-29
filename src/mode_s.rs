@@ -2184,8 +2184,8 @@ pub(crate) fn decode_cpr(mode_s: &ModeS, a: &mut Aircraft, fflag: c_int, surface
             surface_rlat = a.lat;
             surface_rlon = a.lon
         } else if mode_s.b_user_flags & MODES_USER_LATLON_VALID != 0 {
-            surface_rlat = mode_s.f_user_lat;
-            surface_rlon = mode_s.f_user_lon
+            surface_rlat = mode_s.f_user_lat.unwrap(); // FIXME unwrap
+            surface_rlon = mode_s.f_user_lon.unwrap(); // FIXME unwrap
         } else {
             // No local reference, give up
             return -1;
@@ -2287,8 +2287,8 @@ pub(crate) fn decode_cpr_relative(
         lonr = a.lon
     } else if mode_s.b_user_flags & MODES_USER_LATLON_VALID != 0 {
         // Try ground station relative next
-        latr = mode_s.f_user_lat;
-        lonr = mode_s.f_user_lon
+        latr = mode_s.f_user_lat.unwrap(); // FIXME unwrap
+        lonr = mode_s.f_user_lon.unwrap(); // FIXME unwrap
     } else {
         // Exit with error - can't do relative if we don't have ref.
         return -1;

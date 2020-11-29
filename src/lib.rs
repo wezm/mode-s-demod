@@ -129,23 +129,23 @@ pub struct ModeS {
     beast_out_used: c_int,  // How much if the buffer is currently used
 
     // Configuration
-    phase_enhance: bool,              // Enable phase enhancement if true
-    nfix_crc: c_int,                  // Number of crc bit error(s) to correct
-    check_crc: bool,                  // Only display messages with good CRC
-    raw: bool,                        // Raw output format
-    mode_ac: bool,                    // Enable decoding of SSR Modes A & C
-    debug: c_int,                     // Debugging mode
-    quiet: bool,                      // Suppress stdout
-    interactive: bool,                // Interactive mode
-    interactive_display_ttl: c_int,   // Interactive mode: TTL display
-    enable_stats: bool,               // Print stats at exit in --ifile mode
-    onlyaddr: bool,                   // Print only ICAO addresses
+    phase_enhance: bool,            // Enable phase enhancement if true
+    nfix_crc: c_int,                // Number of crc bit error(s) to correct
+    check_crc: bool,                // Only display messages with good CRC
+    raw: bool,                      // Raw output format
+    mode_ac: bool,                  // Enable decoding of SSR Modes A & C
+    debug: c_int,                   // Debugging mode
+    quiet: bool,                    // Suppress stdout
+    interactive: bool,              // Interactive mode
+    interactive_display_ttl: c_int, // Interactive mode: TTL display
+    enable_stats: bool,             // Print stats at exit in --ifile mode
+    onlyaddr: bool,                 // Print only ICAO addresses
     mlat: bool, // Use Beast ascii format for raw data output, i.e. @...; iso *...;
 
     // User details
-    f_user_lat: c_double, // Users receiver/antenna lat/lon needed for initial surface location
-    f_user_lon: c_double, // Users receiver/antenna lat/lon needed for initial surface location
-    b_user_flags: c_int,  // Flags relating to the user details
+    f_user_lat: Option<c_double>, // Users receiver/antenna lat/lon needed for initial surface location
+    f_user_lon: Option<c_double>, // Users receiver/antenna lat/lon needed for initial surface location
+    b_user_flags: c_int,          // Flags relating to the user details
 
     // Interactive mode
     aircrafts: Vec<Aircraft>,
@@ -306,8 +306,8 @@ impl Default for ModeS {
             onlyaddr: false,
             mlat: false,
             interactive_display_ttl: MODES_INTERACTIVE_DISPLAY_TTL,
-            f_user_lat: MODES_USER_LATITUDE_DFLT,
-            f_user_lon: MODES_USER_LONGITUDE_DFLT,
+            f_user_lat: None,
+            f_user_lon: None,
 
             b_user_flags: 0,
             aircrafts: Vec::new(),
@@ -442,16 +442,18 @@ pub fn modes_init() -> (ModeS, [ErrorInfo; NERRORINFO]) {
     Box::into_raw(raw_out);
 
     // Validate the users Lat/Lon home location inputs
-    if state.f_user_lat > 90.0f64
-        || state.f_user_lat < -90.0f64
-        || state.f_user_lon > 360.0f64
-        || state.f_user_lon < -180.0f64
-    {
-        state.f_user_lon = 0.0f64;
-        state.f_user_lat = state.f_user_lon
-    } else if state.f_user_lon > 180.0f64 {
-        // If Longitude is +180 to +360, make it -180 to 0
-        state.f_user_lon -= 360.0f64
+    match (state.f_user_lat, state.f_user_lon) {
+        (Some(lat), Some(lon))
+            if lat > 90.0f64 || lat < -90.0f64 || lon > 360.0f64 || lon < -180.0f64 =>
+        {
+            state.f_user_lat = None;
+            state.f_user_lon = None;
+        }
+        (_, Some(lon)) if lon > 180.0f64 => {
+            // If Longitude is +180 to +360, make it -180 to 0
+            state.f_user_lon = Some(lon - 360.0f64)
+        }
+        (_, _) => (),
     }
 
     // If both Lat and Lon are 0.0 then the users location is either invalid/not-set, or (s)he's in the
@@ -460,7 +462,7 @@ pub fn modes_init() -> (ModeS, [ErrorInfo; NERRORINFO]) {
     // is at 0.0 Lon,so we must check for either f_lat or f_lon being non zero not both.
     // Testing the flag at runtime will be much quicker than ((f_lon != 0.0) || (f_lat != 0.0))
     state.b_user_flags &= !MODES_USER_LATLON_VALID;
-    if state.f_user_lat != 0.0f64 || state.f_user_lon != 0.0f64 {
+    if state.f_user_lat.is_some() && state.f_user_lon.is_some() {
         state.b_user_flags |= MODES_USER_LATLON_VALID
     }
 
